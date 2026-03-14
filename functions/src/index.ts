@@ -1521,50 +1521,58 @@ export const registerRegistrationWithAB = functions.https.onCall(async (data, co
 /**
  * Get A/B test results and analytics
  */
-/**
- * Get A/B test results and analytics
- */
 export const getABTestResults = functions.https.onCall(async (data, context) => {
     if (!context.auth) {
-        throw new functions.https.HttpsError('unauthenticated', '인증이 필요합니다.');
+        throw new functions.https.HttpsError(
+            'unauthenticated',
+            '인증이 필요합니다.'
+        );
     }
-
+    
     const { schoolId } = data;
-
+    
     if (!schoolId) {
-        throw new functions.https.HttpsError('invalid-argument', 'schoolId가 필요합니다.');
+        throw new functions.https.HttpsError(
+            'invalid-argument',
+            'schoolId가 필요합니다.'
+        );
     }
-
+    
     const db = admin.firestore();
-
+    
     try {
+        // Get metrics from last 24 hours
         const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
-
+        
         const metricsSnapshot = await db
             .collection('abTestMetrics')
             .where('schoolId', '==', schoolId)
             .where('createdAt', '>', twentyFourHoursAgo)
             .get();
-
-        const metrics = metricsSnapshot.docs.map((doc: any) => doc.data());
-
+        
+        const metrics = metricsSnapshot.docs.map(doc => doc.data());
+        
+        // Calculate statistics for each group
         const groupA = metrics.filter((m: any) => m.group === 'A');
         const groupB = metrics.filter((m: any) => m.group === 'B');
-
+        
         const calculateStats = (groupMetrics: any[]) => {
             const pageViews = groupMetrics.filter((m: any) => m.event === 'page_view').length;
             const registerStarts = groupMetrics.filter((m: any) => m.event === 'register_start').length;
             const registerCompletes = groupMetrics.filter((m: any) => m.event === 'register_complete').length;
             const registerFails = groupMetrics.filter((m: any) => m.event === 'register_fail').length;
-
+            
             const conversionRate = pageViews > 0 ? (registerCompletes / pageViews * 100).toFixed(2) : '0.00';
             const successRate = registerStarts > 0 ? (registerCompletes / registerStarts * 100).toFixed(2) : '0.00';
-
-            const completesWithDuration = groupMetrics.filter((m: any) => m.event === 'register_complete' && m.duration);
+            
+            // Average duration
+            const completesWithDuration = groupMetrics.filter((m: any) => 
+                m.event === 'register_complete' && m.duration
+            );
             const avgDuration = completesWithDuration.length > 0
                 ? (completesWithDuration.reduce((sum: number, m: any) => sum + m.duration, 0) / completesWithDuration.length / 1000).toFixed(2)
                 : '0.00';
-
+            
             return {
                 pageViews,
                 registerStarts,
@@ -1575,14 +1583,15 @@ export const getABTestResults = functions.https.onCall(async (data, context) => 
                 avgDuration: parseFloat(avgDuration)
             };
         };
-
+        
         const statsA = calculateStats(groupA);
         const statsB = calculateStats(groupB);
-
+        
+        // Calculate improvements
         const conversionImprovement = statsB.conversionRate > 0
             ? ((statsA.conversionRate - statsB.conversionRate) / statsB.conversionRate * 100).toFixed(2)
             : '0.00';
-
+        
         return {
             success: true,
             groupA: statsA,
@@ -1594,11 +1603,12 @@ export const getABTestResults = functions.https.onCall(async (data, context) => 
             totalParticipants: metrics.length,
             timestamp: Date.now()
         };
-
+        
     } catch (error: any) {
         console.error('[ABTestResults] Error:', error);
-        throw new functions.https.HttpsError('internal', 'A/B 테스트 결과를 불러오는데 실패했습니다.');
+        throw new functions.https.HttpsError(
+            'internal',
+            'A/B 테스트 결과를 불러오는데 실패했습니다.'
+        );
     }
 });
-}
-);
