@@ -1,0 +1,23 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "slots": {
+      ".read": true,
+      ".write": false
+    },
+
+    "reservations": {
+      ".read": false,
+      ".write": false
+    },
+
+    "queue": {
+      ".read": true,
+      "$schoolId": {
+        ".write": "auth != null && root.child('admins').child(auth.uid).exists()"
+      }
+    }
+  }
+}

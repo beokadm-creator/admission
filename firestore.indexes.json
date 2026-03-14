@@ -1,0 +1,14 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "abTestResults",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "schoolId", "order": "ASCENDING"},
+        {"fieldPath": "testDate", "order": "ASCENDING"},
+        {"fieldPath": "createdAt", "order": "DESCENDING"}
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Admins - Temporarily allow write for initial setup
+    match /admins/{userId} {
+      allow read: if request.auth.uid == userId;
+      allow write: if request.auth != null; 
+    }
+    
+    // Schools - Public read, Admin write
+    match /schools/{schoolId} {
+      allow read: if true;
+      allow write: if request.auth != null; 
+    }
+    
+    // Registrations
+    match /schools/{schoolId}/registrations/{regId} {
+      allow create: if true;
+      allow read, update: if true; 
+    }
+
+    // Counters for transaction
+    match /counters/{schoolId} {
+      allow read, write: if true; 
+    }
+  }
+}
