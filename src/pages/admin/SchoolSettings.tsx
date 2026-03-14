@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { doc, getDoc, setDoc, collection, getDocs, query, where } from 'firebase/firestore';
-import { ref, onValue, set } from 'firebase/database';
+import { ref, onValue, set, get } from 'firebase/database';
 import { httpsCallable, getFunctions } from 'firebase/functions';
 import { db, rtdb } from '../../firebase/config';
 import { useAuth } from '../../contexts/AuthContext';
@@ -33,6 +33,7 @@ interface SlotStats {
 }
 
 interface Reservation {
+  id?: string;
   userId: string;
   status: 'reserved' | 'confirmed' | 'expired';
   createdAt: number;
@@ -114,7 +115,7 @@ export default function SchoolSettings() {
     setLoadingReservations(true);
     try {
       const reservationsRef = ref(rtdb, `reservations/${schoolId}`);
-      const snapshot = await reservationsRef.once('value');
+      const snapshot = await get(reservationsRef);
 
       if (snapshot.exists()) {
         const data = snapshot.val();
@@ -401,21 +402,12 @@ export default function SchoolSettings() {
 
                 <div className="space-y-3">
                   {[
-                    key: 'collectStudentId',
-                    label: '학번'
-                  }, {
-                    key: 'collectEmail',
-                    label: '이메일'
-                  }, {
-                    key: 'collectSchoolName',
-                    label: '학교명'
-                  }, {
-                    key: 'collectGrade',
-                    label: '학년'
-                  }, {
-                    key: 'collectAddress',
-                    label: '주소'
-                  }].map(({ key, label }) => (
+                    { key: 'collectStudentId', label: '학번' },
+                    { key: 'collectEmail', label: '이메일' },
+                    { key: 'collectSchoolName', label: '학교명' },
+                    { key: 'collectGrade', label: '학년' },
+                    { key: 'collectAddress', label: '주소' }
+                  ].map(({ key, label }) => (
                     <label key={key} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer">
                       <input
                         {...register(`formFields.${key}` as any)}

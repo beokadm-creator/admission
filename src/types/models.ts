@@ -64,11 +64,13 @@ export interface SchoolConfig {
     nhnAppKey?: string;      // NHN Cloud App Key
     nhnSecretKey?: string;   // NHN Cloud Secret Key
     nhnSenderKey?: string;   // NHN Cloud Sender Key (발신번호)
-    
+
     // 알림톡 템플릿 코드
     successTemplate: string;  // 확정 알림톡 템플릿 코드
     waitlistTemplate: string; // 대기 알림톡 템플릿 코드
     promoteTemplate?: string; // 홍보용 템플릿 코드 (선택)
+    confirmTemplateCode?: string; // 확정 템플릿 코드 (신규)
+    waitlistTemplateCode?: string; // 대기 템플릿 코드 (신규)
   };
   
   // --- 5. 기타 설정 ---
@@ -81,14 +83,17 @@ export interface SchoolConfig {
     privacy: {
       title: string;
       content: string;
+      required?: boolean;
     };
     thirdParty: {
       title: string;
       content: string;
+      required?: boolean;
     };
     sms: {
       title: string;
       content: string;
+      required?: boolean;
     };
   };
   

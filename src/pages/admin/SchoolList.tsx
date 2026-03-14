@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { ref, onValue } from 'firebase/database';
+import { ref, onValue, set } from 'firebase/database';
 import { Link, useNavigate } from 'react-router-dom';
 import { db, rtdb } from '../../firebase/config';
 import { useAuth } from '../../contexts/AuthContext';
@@ -89,20 +89,22 @@ export default function SchoolList() {
         alimtalkSettings: {
           nhnAppKey: '',
           nhnSecretKey: '',
+          successTemplate: '',
+          waitlistTemplate: '',
           confirmTemplateCode: '',
           waitlistTemplateCode: ''
         },
         terms: {
-          privacy: { title: '개인정보 수집 및 이용 동의', content: '', required: true },
-          thirdParty: { title: '개인정보 제3자 제공 동의', content: '', required: true },
-          sms: { title: '수신 동의', content: '', required: true }
+          privacy: { title: '개인정보 수집 및 이용 동의', content: '' },
+          thirdParty: { title: '개인정보 제3자 제공 동의', content: '' },
+          sms: { title: '수신 동의', content: '' }
         }
       };
 
       await setDoc(doc(db, 'schools', schoolId), newSchool);
 
       // Initialize RTDB slots
-      await ref(rtdb, `slots/${schoolId}`).set({
+      await set(ref(rtdb, `slots/${schoolId}`), {
         total: 100,
         reserved: 0,
         confirmed: 0,
@@ -124,8 +126,8 @@ export default function SchoolList() {
 
     try {
       await deleteDoc(doc(db, 'schools', schoolId));
-      await ref(rtdb, `slots/${schoolId}`).remove();
-      await ref(rtdb, `reservations/${schoolId}`).remove();
+      await set(ref(rtdb, `slots/${schoolId}`), null);
+      await set(ref(rtdb, `reservations/${schoolId}`), null);
 
       setSchools(schools.filter(s => s.id !== schoolId));
       alert('학교가 삭제되었습니다.');
