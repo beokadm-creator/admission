@@ -10,7 +10,11 @@
       "Bash(\"C:\\\\Users\\\\whhol\\\\Documents\\\\trae_projects\\\\admission\\\\functions\\\\src\\\\index_temp.ts\":*)",
       "Bash(git checkout:*)",
       "Bash(npx tsc:*)",
-      "Bash(firebase deploy:*)"
+      "Bash(firebase deploy:*)",
+      "Bash(sed:*)",
+      "Bash(npm install:*)",
+      "Bash(python3:*)",
+      "Bash(mv:*)"
     ]
   }
 }
