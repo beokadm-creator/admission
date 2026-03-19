@@ -1,27 +1,78 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Admins - Temporarily allow write for initial setup
-    match /admins/{userId} {
-      allow read: if request.auth.uid == userId;
-      allow write: if request.auth != null; 
-    }
-    
-    // Schools - Public read, Admin write
-    match /schools/{schoolId} {
-      allow read: if true;
-      allow write: if request.auth != null; 
-    }
-    
-    // Registrations
-    match /schools/{schoolId}/registrations/{regId} {
-      allow create: if true;
-      allow read, update: if true; 
+
+    function isAuthenticated() {
+      return request.auth != null;
     }
 
-    // Counters for transaction
+    function isMaster() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'MASTER';
+    }
+
+    function isAdminOfSchool(schoolId) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        (
+          get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'MASTER' ||
+          get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.assignedSchoolId == schoolId
+        );
+    }
+
+    // Admins
+    // MASTER만 다른 관리자를 생성/수정/삭제 가능
+    // 자기 자신의 문서는 읽기만 가능
+    match /admins/{userId} {
+      allow read: if request.auth.uid == userId;
+      allow create: if isMaster();
+      allow update, delete: if isMaster();
+    }
+
+    // Schools
+    match /schools/{schoolId} {
+      allow read: if true; // 학교 설정은 공개 (오픈 시간, 행사 정보 등)
+      allow write: if isAdminOfSchool(schoolId);
+
+      // 통계 - Cloud Functions(Admin SDK)만 쓰기, 관리자만 읽기
+      match /stats/{document=**} {
+        allow read: if isAdminOfSchool(schoolId);
+        allow write: if false;
+      }
+
+      // 신청 내역 - Cloud Functions(Admin SDK)만 쓰기, 관리자만 읽기
+      // 일반 사용자 조회는 lookupRegistration Cloud Function 사용
+      match /registrations/{regId} {
+        allow read: if isAdminOfSchool(schoolId);
+        allow create, update, delete: if false;
+      }
+
+      // 예약 세션 - Cloud Functions(Admin SDK)만 처리
+      match /reservations/{regId} {
+        allow read, write: if false;
+      }
+    }
+
+    // 카운터 - Cloud Functions(Admin SDK)만 사용
     match /counters/{schoolId} {
-      allow read, write: if true; 
+      allow read, write: if false;
+    }
+
+    // Rate Limit 기록 - Cloud Functions(Admin SDK)만 사용
+    match /rateLimits/{document} {
+      allow read, write: if false;
+    }
+
+    // AlimTalk 큐 - Cloud Functions(Admin SDK)만 사용
+    match /alimtalkQueue/{document} {
+      allow read, write: if false;
+    }
+
+    // 용량 알림 - Cloud Functions 쓰기, MASTER만 읽기
+    match /capacityAlerts/{document} {
+      allow read: if isMaster();
+      allow write: if false;
     }
   }
 }

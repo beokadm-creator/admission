@@ -12,7 +12,6 @@ import SchoolSettings from './pages/admin/SchoolSettings';
 import SchoolList from './pages/admin/SchoolList';
 
 // School Pages
-import SchoolMain from './pages/school/Main';
 import QueuePage from './pages/school/Queue';
 import RegisterPage from './pages/school/Register';
 import CompletePage from './pages/school/Complete';
@@ -41,7 +40,7 @@ function App() {
 
           {/* School Routes */}
           <Route path="/:schoolId" element={<SchoolLayout />}>
-            <Route index element={<SchoolMain />} />
+            <Route index element={<Navigate to="gate" replace />} />
             <Route path="gate" element={<SmartQueueGate />} />
             <Route path="queue" element={<QueuePage />} />
             <Route path="register" element={<RegisterPage />} />

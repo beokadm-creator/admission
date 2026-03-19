@@ -26,7 +26,10 @@ export interface SchoolConfig {
   
   // --- 2. 페이지 제어 ---
   openDateTime: string;    // ISO string (접수 시작 시간)
-  parkingMessage?: string; // 오픈 전 대기 문구
+  eventDate?: string;      // ISO string (행사 일자)
+  heroMessage?: string;    // Hero text used across gate and main screens
+  programInfo?: string;    // Brief description of the event/program
+  parkingMessage?: string; // Legacy hero copy; retained for backwards compatibility
   usePopup: boolean;       // 팝업 사용 여부
   popupContent?: string;   // 팝업 내용 (HTML or Text)
   previewToken?: string;   // 미리보기용 토큰 (오픈 전 접근용)
@@ -135,3 +138,4 @@ export interface Registration {
   updatedAt: number;
   ipAddress?: string; // 중복 방지 등을 위한 IP 기록
 }
+

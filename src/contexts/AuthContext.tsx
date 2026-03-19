@@ -35,9 +35,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const docRef = doc(db, 'admins', user.uid);
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
-            setAdminProfile(docSnap.data() as AdminUser);
+            const profile = docSnap.data() as AdminUser;
+            setAdminProfile(profile);
           } else {
-            console.warn('User is authenticated but has no admin profile in Firestore.');
             setAdminProfile(null);
           }
         } catch (error) {

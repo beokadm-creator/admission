@@ -3,15 +3,14 @@
 **Domain:** School-facing event registration pages
 
 ## OVERVIEW
-Six route components handling the complete school event registration workflow: parking information, queue management, registration form, completion status, and lookup.
+Five route components power the school event funnel: landing/prompting, queue management, registration form, completion status, and lookup.
 
 ## WHERE TO LOOK
 | Task | File | Notes |
 |------|------|-------|
 | Main registration form | `Register.tsx` (310 lines) | Dynamic form fields based on schoolConfig.formFields |
 | Queue status display | `Queue.tsx` | Shows current position and waitlist status |
-| Parking information | `Parking.tsx` | Pre-registration parking info display |
-| School landing page | `Main.tsx` | Entry point with school info and navigation |
+| School landing page | `Main.tsx` | Entry point with hero info, countdown, and navigation |
 | Status lookup | `Lookup.tsx` | Phone-based registration lookup |
 | Completion confirmation | `Complete.tsx` | Post-registration confirmation page |
 

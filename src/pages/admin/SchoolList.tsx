@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { ref, onValue, set } from 'firebase/database';
+import { collection, getDocs, doc, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
+import { ref, set } from 'firebase/database';
 import { Link, useNavigate } from 'react-router-dom';
 import { db, rtdb } from '../../firebase/config';
 import { useAuth } from '../../contexts/AuthContext';
@@ -24,26 +24,37 @@ export default function SchoolList() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (adminProfile?.role !== 'MASTER') {
+    // Skip if adminProfile is not loaded yet
+    if (!adminProfile) {
+      return;
+    }
+
+    // Check for MASTER role
+    if (adminProfile.role !== 'MASTER') {
       navigate('/admin');
       return;
     }
 
     const fetchSchools = async () => {
       try {
+        console.log('Fetching schools...');
         const querySnapshot = await getDocs(collection(db, 'schools'));
         const schoolList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SchoolWithStats));
+        console.log('Found schools:', schoolList.length);
 
-        // Fetch real-time slot stats for each school
+        // Fetch slot stats from Firestore for each school
         const schoolsWithStats = await Promise.all(
           schoolList.map(async (school) => {
-            const slotRef = ref(rtdb, `slots/${school.id}`);
-            return new Promise<SchoolWithStats>((resolve) => {
-              const unsubscribe = onValue(slotRef, (snapshot) => {
-                const slotStats = snapshot.exists() ? snapshot.val() : null;
-                resolve({ ...school, slotStats });
-              }, { onlyOnce: true });
-            });
+            try {
+              const slotDocRef = doc(db, 'schools', school.id, 'stats', 'slots');
+              const slotDocSnap = await getDoc(slotDocRef);
+              const slotStats = slotDocSnap.exists() ? slotDocSnap.data() as SchoolWithStats['slotStats'] : null;
+              console.log('School stats:', school.id, slotStats);
+              return { ...school, slotStats };
+            } catch (error) {
+              console.warn('Error fetching stats for school:', school.id, error);
+              return { ...school, slotStats: null };
+            }
           })
         );
 
@@ -164,8 +175,8 @@ export default function SchoolList() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">학교 관리</h1>
-              <p className="text-sm text-gray-500 mt-1">슬롯 예약 시스템 관리 대시보드</p>
+              <h1 className="text-2xl font-bold text-gray-900">학교별 현황</h1>
+              <p className="text-sm text-gray-500 mt-1">각 학교별 슬롯 현황 및 관리</p>
             </div>
             <div className="flex space-x-3">
               <button

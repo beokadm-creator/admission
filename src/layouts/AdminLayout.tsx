@@ -20,10 +20,10 @@ export default function AdminLayout() {
   };
 
   const menuItems = adminProfile?.role === 'MASTER' ? [
-    { name: '대시보드', path: '/admin', icon: '📊' },
-    { name: '학교 관리', path: '/admin/schools', icon: '🏫' },
+    { name: '전체 대시보드', path: '/admin', icon: '📊' },
+    { name: '학교별 현황', path: '/admin/schools', icon: '🏫' },
   ] : [
-    { name: '대시보드', path: '/admin', icon: '📊' },
+    { name: '내 학교 대시보드', path: '/admin', icon: '📊' },
     { name: '학교 설정', path: `/admin/schools/${adminProfile?.assignedSchoolId}`, icon: '⚙️' },
   ];
 
@@ -41,19 +41,23 @@ export default function AdminLayout() {
         <nav className="p-4">
           <ul className="space-y-2">
             {menuItems.map((item) => {
-              const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
+              const isActive = location.pathname === item.path ||
+                             (item.path !== '/admin' && location.pathname.startsWith(item.path + '/'));
               return (
                 <li key={item.path}>
                   <Link
                     to={item.path}
-                    className={`flex items-center p-3 rounded-lg transition-colors ${
+                    className={`flex items-center p-3 rounded-lg transition-all ${
                       isActive
-                        ? 'bg-blue-600 text-white'
+                        ? 'bg-blue-600 text-white shadow-md'
                         : 'text-gray-300 hover:bg-gray-800 hover:text-white'
                     }`}
                   >
                     <span className="text-xl mr-3">{item.icon}</span>
-                    {sidebarOpen && <span>{item.name}</span>}
+                    {sidebarOpen && <span className="font-medium">{item.name}</span>}
+                    {isActive && sidebarOpen && (
+                      <span className="ml-auto w-2 h-2 bg-white rounded-full"></span>
+                    )}
                   </Link>
                 </li>
               );

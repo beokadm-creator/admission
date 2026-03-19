@@ -14,7 +14,16 @@
       "Bash(sed:*)",
       "Bash(npm install:*)",
       "Bash(python3:*)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "Bash(awk NR>=1520 && NR<=1614:*)",
+      "Bash(rm:*)",
+      "Bash(git restore:*)",
+      "Bash(node -e \"const fs = require\\(''fs''\\); const content = fs.readFileSync\\(''index.ts'', ''utf8''\\); const lines = content.split\\(''\\\\n''\\); console.log\\(JSON.stringify\\(lines[365]\\)\\)\")",
+      "Bash(node -e \":*)",
+      "Bash(node -e \"const d=require\\(''''fs''''\\).readFileSync\\(''''/dev/stdin'''',''''utf8''''\\); const j=JSON.parse\\(d\\); const vulns=j.vulnerabilities||{}; Object.entries\\(vulns\\).forEach\\(\\([k,v]\\)=>{ if\\(v.severity===''''critical''''||v.severity===''''high''''\\) console.log\\(v.severity.toUpperCase\\(\\),k,v.via?.map?.\\(x=>typeof x===''''string''''?x:x.title||x.source\\).join\\('''',''''\\)||''''''''\\) }\\)\")",
+      "Bash(npm audit:*)",
+      "Bash(node scripts/validate_waitlist_split.cjs)",
+      "Bash(node scripts/validate_100_per_60_queue.cjs)"
     ]
   }
 }

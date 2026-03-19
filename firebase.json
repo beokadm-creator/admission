@@ -35,5 +35,37 @@
   },
   "database": {
     "rules": "database.rules.json"
+  },
+  "emulators": {
+    "ui": {
+      "enabled": true,
+      "port": 14005
+    },
+    "hub": {
+      "port": 14405
+    },
+    "logging": {
+      "port": 14505
+    },
+    "firestore": {
+      "host": "127.0.0.1",
+      "port": 18085
+    },
+    "database": {
+      "host": "127.0.0.1",
+      "port": 19005
+    },
+    "auth": {
+      "host": "127.0.0.1",
+      "port": 9099
+    },
+    "pubsub": {
+      "host": "127.0.0.1",
+      "port": 18086
+    },
+    "functions": {
+      "host": "127.0.0.1",
+      "port": 15005
+    }
   }
 }

@@ -36,7 +36,7 @@ admission/
 | Backend entry point | `functions/src/index.ts` | Firestore triggers, AlimTalk |
 | Type definitions | `src/types/models.ts` | SchoolConfig, Registration, AdminUser |
 | Firebase config | `src/firebase/config.ts` | Client initialization |
-| School domain pages | `src/pages/school/` | Register, Queue, Parking, Main, Lookup, Complete |
+| School domain pages | `src/pages/school/` | Register, Queue, Main, Lookup, Complete |
 | Admin domain pages | `src/pages/admin/` | Dashboard, SchoolSettings, SchoolList, Login |
 | Reusable components | `src/components/` | AdminRoute, QueueController, RegistrationList |
 | State management | `src/contexts/` | AuthContext, SchoolContext (no Redux, uses Context API) |

@@ -3,20 +3,30 @@
     ".read": false,
     ".write": false,
 
+    "queue": {
+      "$schoolId": {
+        "meta": {
+          ".read": "auth != null"
+        },
+        "entries": {
+          "$userId": {
+            ".read": "auth != null && auth.uid == $userId"
+          }
+        }
+      }
+    },
+
     "slots": {
-      ".read": true,
-      ".write": false
+      "$schoolId": {
+        ".read": "auth != null"
+      }
     },
 
     "reservations": {
       ".read": false,
-      ".write": false
-    },
-
-    "queue": {
-      ".read": true,
+      ".write": false,
       "$schoolId": {
-        ".write": "auth != null && root.child('admins').child(auth.uid).exists()"
+        ".indexOn": ["userId", "expiresAt"]
       }
     }
   }
