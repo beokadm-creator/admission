@@ -8,6 +8,14 @@ export default {
       center: true,
     },
     extend: {
+      colors: {
+        snu: {
+          blue: '#003B71',
+          gray: '#E8E9EA',
+          dark: '#00274c',
+          text: '#333333',
+        }
+      },
       keyframes: {
         'shrink': {
           '0%': { width: '100%' },

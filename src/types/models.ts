@@ -29,6 +29,7 @@ export interface SchoolConfig {
   eventDate?: string;      // ISO string (행사 일자)
   heroMessage?: string;    // Hero text used across gate and main screens
   programInfo?: string;    // Brief description of the event/program
+  programImageUrl?: string; // 추가: 프로그램 이미지 URL (레이어 팝업용)
   parkingMessage?: string; // Legacy hero copy; retained for backwards compatibility
   usePopup: boolean;       // 팝업 사용 여부
   popupContent?: string;   // 팝업 내용 (HTML or Text)
@@ -50,15 +51,13 @@ export interface SchoolConfig {
   };
 
   // --- 3. 폼 동적 제어 (formFields) ---
-  // --- 3. 폼 동적 제어 (formFields) ---
-  // studentName, phone은 코드 레벨에서 필수 수집
   formFields: {
     collectEmail: boolean;
     collectAddress: boolean;
     collectSchoolName: boolean;
     collectGrade: boolean;
+    gradeOptions?: string[];   // 추가: 학년 선택 옵션 목록
     collectStudentId: boolean; // 학번
-    // 필요 시 추가
   };
   
   // --- 4. 알림톡 템플릿 (alimtalkSettings) ---
@@ -80,6 +79,12 @@ export interface SchoolConfig {
   buttonSettings: {
     showLookupButton: boolean; // 조회 버튼 노출 여부
     showCancelButton: boolean; // 취소 버튼 노출 여부
+  };
+  
+  serviceAccess?: {
+    enabled: boolean;
+    buttonLabel?: string;
+    description?: string;
   };
   
   terms: {
@@ -138,4 +143,3 @@ export interface Registration {
   updatedAt: number;
   ipAddress?: string; // 중복 방지 등을 위한 IP 기록
 }
-

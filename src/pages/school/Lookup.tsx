@@ -25,6 +25,7 @@ export default function LookupPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [canceling, setCanceling] = useState(false);
+  const [serviceLoading, setServiceLoading] = useState(false);
 
   const handleLookup = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -87,67 +88,94 @@ export default function LookupPage() {
     }
   };
 
+  const handleServiceAccess = async () => {
+    if (!result || !schoolConfig) return;
+
+    setServiceLoading(true);
+    try {
+      const accessFn = httpsCallable(functions, 'getServiceAccessLink');
+      const response: any = await accessFn({
+        schoolId: schoolConfig.id,
+        registrationId: result.id,
+        studentName: applicantName.trim(),
+        phoneLast4: phoneLast4.trim()
+      });
+
+      const accessUrl = response.data?.accessUrl;
+      if (!accessUrl) {
+        throw new Error('이동할 서비스 URL이 설정되지 않았습니다.');
+      }
+
+      window.location.href = accessUrl;
+    } catch (serviceError: any) {
+      console.error(serviceError);
+      window.alert(serviceError?.message || '서비스 이동 중 오류가 발생했습니다.');
+    } finally {
+      setServiceLoading(false);
+    }
+  };
+
   if (!schoolConfig) return null;
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] px-4 py-8 font-sans tracking-tight sm:py-12">
+    <div className="min-h-screen bg-snu-gray px-4 py-8 font-sans tracking-tight sm:py-12">
       <div className="mx-auto w-full max-w-lg">
         <button
           onClick={() => navigate(`/${schoolConfig.id}/gate`)}
-          className="mb-6 inline-flex items-center text-sm font-medium text-gray-500 transition-colors hover:text-gray-900"
+          className="mb-8 inline-flex items-center text-xs font-bold text-gray-400 transition-colors hover:text-snu-blue uppercase tracking-widest"
         >
           <ChevronLeft className="mr-1 h-4 w-4" />
-          대기열 페이지로 돌아가기
+          Back to Gate
         </button>
 
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-gray-100 bg-white shadow-sm">
-            <Search className="h-7 w-7 text-indigo-600" />
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-lg border border-gray-100 bg-white shadow-sm">
+            <Search className="h-7 w-7 text-snu-blue" />
           </div>
-          <h1 className="text-2xl font-extrabold text-gray-900 sm:text-3xl">신청 내역 조회</h1>
-          <p className="mt-2 text-sm leading-relaxed text-gray-500">
-            신청 시 입력한 신청자명과 전화번호 뒤 4자리를 입력해 현재 상태를 확인해 주세요.
+          <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">신청 내역 조회</h1>
+          <p className="mt-3 text-sm leading-relaxed text-gray-400 font-medium">
+            신청 시 입력한 정확한 정보로 현재 상태를 확인하실 수 있습니다.
           </p>
         </div>
 
-        <div className="mb-6 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
+        <div className="mb-6 rounded-lg border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
           <form onSubmit={handleLookup} className="space-y-6">
             <div>
-              <label className="mb-2 block text-sm font-semibold text-gray-700">신청자명</label>
+              <label className="mb-2 block text-xs font-bold text-gray-500 uppercase tracking-wider">신청자 성명</label>
               <input
                 type="text"
                 value={applicantName}
                 onChange={(event) => setApplicantName(event.target.value)}
-                className="block w-full rounded-xl border border-gray-200 bg-gray-50 p-3.5 text-base transition-all focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500"
-                placeholder="예: 홍길동"
+                className="block w-full rounded-md border border-gray-100 bg-gray-50/50 p-3.5 text-base font-bold transition-all focus:border-snu-blue focus:bg-white focus:ring-1 focus:ring-snu-blue outline-none"
+                placeholder="홍길동"
                 required
               />
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-semibold text-gray-700">전화번호 뒤 4자리</label>
+              <label className="mb-2 block text-xs font-bold text-gray-500 uppercase tracking-wider">휴대폰 번호 뒤 4자리</label>
               <input
                 type="text"
                 value={phoneLast4}
                 onChange={(event) => setPhoneLast4(event.target.value.replace(/\D/g, '').slice(0, 4))}
-                className="block w-full rounded-xl border border-gray-200 bg-gray-50 p-3.5 text-base tracking-[0.3em] transition-all focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500"
-                placeholder="5678"
+                className="block w-full rounded-md border border-gray-100 bg-gray-50/50 p-3.5 text-base tracking-[0.4em] font-bold transition-all focus:border-snu-blue focus:bg-white focus:ring-1 focus:ring-snu-blue outline-none"
+                placeholder="0000"
                 inputMode="numeric"
                 maxLength={4}
                 pattern="\d{4}"
                 required
               />
-              <p className="mt-2 text-[13px] text-gray-500">
-                예: `010-1234-5678`이라면 <span className="font-semibold text-indigo-600">5678</span>을 입력합니다.
+              <p className="mt-2 text-[11px] text-gray-400 font-medium">
+                예: 010-0000-<span className="text-snu-blue font-bold">5678</span>인 경우 5678을 입력합니다.
               </p>
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-xl bg-gray-900 py-4 text-base font-bold text-white shadow-md transition-all hover:bg-gray-800 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
+              className="w-full rounded-md bg-snu-blue py-4 text-base font-bold text-white shadow-sm transition-all hover:bg-snu-dark disabled:cursor-not-allowed disabled:bg-gray-300"
             >
-              {loading ? '조회 중입니다...' : '신청 내역 조회하기'}
+              {loading ? '검색 중...' : '신청 내역 조회'}
             </button>
           </form>
         </div>
@@ -160,25 +188,25 @@ export default function LookupPage() {
         )}
 
         {result && (
-          <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-lg sm:p-8">
-            <h2 className="mb-5 flex items-center justify-between border-b border-gray-100 pb-4 text-lg font-bold text-gray-900">
-              <span>조회 결과</span>
+          <div className="rounded-lg border border-gray-100 bg-white p-6 shadow-md sm:p-8">
+            <h2 className="mb-6 flex items-center justify-between border-b border-gray-100 pb-4 text-xs font-bold text-gray-400 uppercase tracking-widest">
+              <span>Result Found</span>
               {result.status === 'confirmed' && (
-                <span className="inline-flex items-center rounded-full border border-green-200 bg-green-50 px-3 py-1 text-sm font-bold text-green-700">
-                  <CheckCircle2 className="mr-1.5 h-4 w-4" />
-                  확정
+                <span className="inline-flex items-center rounded border border-snu-blue/20 bg-snu-blue/5 px-3 py-1 text-[10px] font-bold text-snu-blue">
+                  <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                  CONFIRMED
                 </span>
               )}
               {result.status === 'waitlisted' && (
-                <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-sm font-bold text-amber-700">
-                  <Clock className="mr-1.5 h-4 w-4" />
-                  예비 접수
+                <span className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-3 py-1 text-[10px] font-bold text-amber-600">
+                  <Clock className="mr-1.5 h-3.5 w-3.5" />
+                  WAITLISTED
                 </span>
               )}
               {result.status === 'canceled' && (
-                <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm font-bold text-gray-600">
-                  <XCircle className="mr-1.5 h-4 w-4" />
-                  취소됨
+                <span className="inline-flex items-center rounded border border-gray-200 bg-gray-50 px-3 py-1 text-[10px] font-bold text-gray-400">
+                  <XCircle className="mr-1.5 h-3.5 w-3.5" />
+                  CANCELED
                 </span>
               )}
             </h2>
@@ -217,22 +245,48 @@ export default function LookupPage() {
 
             {schoolConfig.buttonSettings.showCancelButton &&
               (result.status === 'confirmed' || result.status === 'waitlisted') && (
-                <div className="mt-8 border-t border-gray-100 pt-6">
+                <div className="mt-8 border-t border-gray-50 pt-6">
                   <button
                     onClick={handleCancel}
                     disabled={canceling}
-                    className="w-full rounded-xl border-2 border-gray-200 bg-white py-3.5 font-bold text-gray-600 transition-all hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="w-full rounded-md border border-gray-200 bg-white py-3.5 text-sm font-bold text-gray-400 transition-all hover:border-red-100 hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {canceling ? '취소 처리 중입니다...' : '신청 취소하기'}
+                    {canceling ? '처리 중...' : '신청 취소 신청'}
                   </button>
-                  <p className="mt-3 flex items-center justify-center text-center text-xs text-gray-400">
+                  <p className="mt-3 flex items-center justify-center text-center text-[10px] font-bold text-gray-300 uppercase tracking-tighter">
                     <AlertCircle className="mr-1 h-3 w-3" />
-                    취소 후에는 즉시 반영되며 되돌릴 수 없습니다.
+                    취소 처리 시 해당 대기 순번은 영구 소멸됩니다.
                   </p>
                 </div>
               )}
+
+            {result.status === 'confirmed' && schoolConfig.serviceAccess?.enabled === true && (
+              <div className="mt-4 rounded-lg border border-snu-blue/10 bg-snu-blue/5 p-5">
+                <p className="text-xs font-bold text-snu-blue uppercase tracking-widest">
+                  {schoolConfig.serviceAccess.buttonLabel || 'SERVICE ACCESS'}
+                </p>
+                {schoolConfig.serviceAccess.description && (
+                  <p className="mt-2 text-sm leading-relaxed text-gray-600 font-medium">{schoolConfig.serviceAccess.description}</p>
+                )}
+                <button
+                  onClick={handleServiceAccess}
+                  disabled={serviceLoading}
+                  className="mt-4 w-full rounded-md bg-snu-blue py-3.5 font-bold text-white shadow-sm transition hover:bg-snu-dark disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {serviceLoading
+                    ? '이동 중...'
+                    : schoolConfig.serviceAccess.buttonLabel || '서비스 시작하기'}
+                </button>
+              </div>
+            )}
           </div>
         )}
+
+        <div className="mt-12 text-center pb-8 uppercase tracking-[0.2em] font-bold">
+          <p className="text-[10px] text-gray-300">
+            &copy; {new Date().getFullYear()} SEOUL NATIONAL UNIVERSITY ADMISSIONS
+          </p>
+        </div>
       </div>
     </div>
   );

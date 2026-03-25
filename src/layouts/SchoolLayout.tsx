@@ -7,7 +7,7 @@ export default function SchoolLayout() {
   return (
     <SchoolProvider>
       <SchoolPopup />
-      <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
+      <div className="min-h-screen bg-snu-gray font-sans text-gray-900">
         <Outlet />
       </div>
     </SchoolProvider>

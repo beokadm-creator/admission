@@ -161,6 +161,43 @@ const _unusedOnRegistrationUpdate = firestoreTriggers
         // canceled로 변경 시에는 발송하지 않음 (요구사항)
     });
 
+// 3. onDelete 트리거: 신청 내역 삭제 시 통계 및 슬롯 복구
+export const onRegistrationDelete = firestoreTriggers
+    .document('schools/{schoolId}/registrations/{registrationId}')
+    .onDelete(async (snap, context) => {
+        const deletedData = snap.data();
+        const schoolId = context.params.schoolId;
+        const status = deletedData?.status;
+
+        if (status === 'confirmed' || status === 'waitlisted') {
+            const schoolRef = admin.firestore().doc(`schools/${schoolId}`);
+            const updateField = status === 'confirmed' ? 'stats.confirmedCount' : 'stats.waitlistedCount';
+            
+            try {
+                // Firestore 통계 업데이트
+                await schoolRef.update({
+                    [updateField]: admin.firestore.FieldValue.increment(-1)
+                });
+
+                // RTDB slots 업데이트 (슬롯 반환)
+                const now = Date.now();
+                await admin.database().ref(`slots/${schoolId}`).transaction((current: SlotData | null) => {
+                    if (!current) return;
+                    return {
+                        ...current,
+                        confirmed: Math.max(0, (current.confirmed || 0) - 1),
+                        available: (current.available || 0) + 1,
+                        lastUpdated: now
+                    };
+                });
+                
+                functions.logger.info(`[RegistrationDelete] Success: ${context.params.registrationId} (School: ${schoolId}, Status: ${status})`);
+            } catch (error) {
+                functions.logger.error(`[RegistrationDelete] Error:`, error);
+            }
+        }
+    });
+
 // 3. HTTP 트리거: NHN 알림톡 템플릿 목록 조회
 export const getAlimtalkTemplates = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
     functions.logger.info('[AlimTalk Template Fetch] Function invoked', new Date().toISOString());
@@ -452,6 +489,12 @@ async function expireReservation(schoolId: string, sessionId: string, now: numbe
     });
 
     if (!txResult.committed) return; // 이미 만료/확정된 세션이므로 슬롯 반환 불필요
+
+    const expiredData = txResult.snapshot.val() as ReservationData;
+    if (expiredData && expiredData.userId) {
+        // 사용자의 대기열 번호도 무효화하여 재진입 시 새로운 번호를 받도록 함
+        await admin.database().ref(`queue/${schoolId}/entries/${expiredData.userId}`).remove();
+    }
 
     await admin.database().ref(`slots/${schoolId}`).transaction((currentData: SlotData | null) => {
         if (!currentData) return currentData;
@@ -875,6 +918,11 @@ export const joinQueue = functionsV1.https.onCall(async (request: any, legacyCon
         const existingEntry = entries[userId];
 
         if (existingEntry) {
+            // 이미 입장 순서가 지났는데 세션도 없는 경우(만료 등), 새로운 번호를 발급받을 수 있도록 함
+            // 단, 여기서 세션 존재 여부를 알 수 없으므로, lastSeenAt이 너무 오래되었거나 
+            // 클라이언트에서 명시적으로 초기화 요청을 할 때 혹은 입장이 한참 지난 경우를 고려하나
+            // 단순하게는 cleanup에서 삭제해주는 것이 가장 깔끔함.
+            // 여기서는 존재할 경우 일단 업데이트만 하고 유지.
             entries[userId] = {
                 ...existingEntry,
                 lastSeenAt: now
@@ -1080,12 +1128,12 @@ export const confirmReservation = functionsV1.https.onCall(async (request: any, 
     if (!sanitizedFormData.studentName || typeof sanitizedFormData.studentName !== 'string' || sanitizedFormData.studentName.trim().length === 0) {
         throw new functions.https.HttpsError('invalid-argument', '학생 이름이 올바르지 않습니다.');
     }
-    if (!sanitizedFormData.phone || !/^010-\d{4}-\d{4}$/.test(sanitizedFormData.phone)) {
-        throw new functions.https.HttpsError('invalid-argument', '전화번호 형식이 올바르지 않습니다. (010-0000-0000)');
+    if (!sanitizedFormData.phone || !/^010\d{8}$/.test(sanitizedFormData.phone)) {
+        throw new functions.https.HttpsError('invalid-argument', '전화번호 형식이 올바르지 않습니다. (01000000000)');
     }
 
     // 문자열 필드 길이 제한 (XSS/과도한 데이터 방지)
-    sanitizedFormData.phoneLast4 = sanitizedFormData.phone.split('-').pop() || '';
+    sanitizedFormData.phoneLast4 = sanitizedFormData.phone.slice(-4);
     sanitizedFormData.studentName = sanitizedFormData.studentName.trim().substring(0, 50);
     if (sanitizedFormData.schoolName) sanitizedFormData.schoolName = String(sanitizedFormData.schoolName).trim().substring(0, 100);
     if (sanitizedFormData.address) sanitizedFormData.address = String(sanitizedFormData.address).trim().substring(0, 200);
@@ -1153,6 +1201,11 @@ async function runCleanupExpiredReservations() {
                     });
                     if (txResult.committed) {
                         releaseCount++;
+                        // 만료된 사용자의 대기열 번호도 무효화(삭제)하여 재진입 시 새로운 번호를 받도록 함
+                        const expiredData = txResult.snapshot.val() as ReservationData;
+                        if (expiredData && expiredData.userId) {
+                            await admin.database().ref(`queue/${schoolId}/entries/${expiredData.userId}`).remove();
+                        }
                     }
                 }
 
@@ -1341,7 +1394,7 @@ export const registerRegistration = functionsV1.https.onCall(async (request: any
     
     // Extract identifier for rate limiting
     // Use IP if available, otherwise use phoneLast4 as fallback
-    const phoneLast4 = phone.split('-').pop() || '';
+    const phoneLast4 = phone.slice(-4);
     const identifier = rawRequest?.ip || `phone_${phoneLast4}`;
     
     // 1. Rate Limiting Check

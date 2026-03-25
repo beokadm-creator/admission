@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   CheckCircle2,
+  CheckSquare,
   Clock,
   LogOut,
   RefreshCw,
@@ -49,10 +50,8 @@ interface AlimtalkTemplateOption {
 }
 
 type SettingsFormValues = SchoolConfig & {
-  queueSettings: {
-    enabled: boolean;
-    batchSize: number;
-    batchInterval: number;
+  formFields: SchoolConfig['formFields'] & {
+    gradeOptionsText?: string;
   };
 };
 
@@ -221,6 +220,7 @@ export default function SchoolSettings() {
       parkingMessage: '',
       usePopup: false,
       popupContent: '',
+      programImageUrl: '',
       previewToken: '',
       queueSettings: {
         enabled: true,
@@ -232,7 +232,8 @@ export default function SchoolSettings() {
         collectAddress: false,
         collectSchoolName: false,
         collectGrade: false,
-        collectStudentId: false
+        collectStudentId: false,
+        gradeOptionsText: ''
       },
       alimtalkSettings: {
         nhnAppKey: '',
@@ -350,6 +351,8 @@ export default function SchoolSettings() {
         setValue('buttonSettings.showLookupButton', data.buttonSettings?.showLookupButton !== false);
         setValue('buttonSettings.showCancelButton', data.buttonSettings?.showCancelButton !== false);
         setValue('isActive', data.isActive !== false);
+        setValue('programImageUrl', data.programImageUrl || '');
+        setValue('formFields.gradeOptionsText', (data.formFields?.gradeOptions || []).join('\n'));
       } catch (error) {
         console.error('Error loading school settings:', error);
         alert('학교 설정을 불러오는 중 오류가 발생했습니다.');
@@ -485,12 +488,26 @@ export default function SchoolSettings() {
         heroMessage: heroCopy,
         parkingMessage: heroCopy,
         programInfo: programCopy,
+        programImageUrl: data.programImageUrl || '',
         popupContent: data.popupContent || '',
         previewToken: data.previewToken || '',
         queueSettings: {
           enabled: data.queueSettings?.enabled !== false,
           batchSize: data.queueSettings?.batchSize || 80,
           batchInterval: batchIntervalMs
+        },
+        formFields: {
+          collectEmail: !!data.formFields?.collectEmail,
+          collectAddress: !!data.formFields?.collectAddress,
+          collectSchoolName: !!data.formFields?.collectSchoolName,
+          collectGrade: !!data.formFields?.collectGrade,
+          collectStudentId: !!data.formFields?.collectStudentId,
+          gradeOptions: (data.formFields as any)?.gradeOptionsText
+            ? ((data.formFields as any).gradeOptionsText as string)
+                .split('\n')
+                .map((s) => s.trim())
+                .filter(Boolean)
+            : []
         },
         alimtalkSettings: {
           ...data.alimtalkSettings,
@@ -621,9 +638,9 @@ export default function SchoolSettings() {
                 <>
                   <div className="grid gap-4 md:grid-cols-4">
                     <OverviewCard label="총 관리 인원" value={slotStats.total} helper="정규 신청 + 예비 접수" tone="blue" />
-                    <OverviewCard label="작성 중" value={slotStats.reserved} helper="현재 5분 세션 사용 중" tone="amber" />
                     <OverviewCard label="작성 완료" value={slotStats.confirmed} helper="제출 완료된 신청" tone="green" />
-                    <OverviewCard label="잔여 인원" value={slotStats.available} helper="현재 즉시 배정 가능" tone="violet" />
+                    <OverviewCard label="작성 중" value={slotStats.reserved} helper="신청서 작성 페이지 접속 인원" tone="amber" />
+                    <OverviewCard label="잔여 인원" value={slotStats.total - slotStats.confirmed} helper="최종 제출 전인 모든 잔여 인원" tone="violet" />
                   </div>
 
                   <div className="mt-6">
@@ -690,13 +707,16 @@ export default function SchoolSettings() {
                       placeholder="예: 오픈 시각에 버튼이 활성화되며, 클릭 순서대로 순번이 부여됩니다."
                     />
                   </Field>
-                  <Field label="프로그램 안내">
+                  <Field label="프로그램 안내 (텍스트)">
                     <textarea
                       {...register('programInfo')}
                       rows={4}
                       className={textareaClassName}
                       placeholder="예: 사전 준비물, 행사 소개, 유의사항 등을 안내합니다."
                     />
+                  </Field>
+                  <Field label="프로그램 안내 이미지 URL" hint="게이트 페이지의 '프로그램 보기' 팝업에 노출될 이미지 주소입니다.">
+                    <input {...register('programImageUrl')} type="url" className={inputClassName} placeholder="https://..." />
                   </Field>
                 </div>
               </section>
@@ -779,6 +799,17 @@ export default function SchoolSettings() {
                         <span className="text-sm text-gray-700">{label} 수집</span>
                       </label>
                     ))}
+
+                    <div className="mt-4 pt-4 border-t border-gray-100">
+                      <Field label="학년 선택 옵션" hint="Enter를 눌러 한 줄에 하나씩 입력해 주세요. (예: 예비1학년)">
+                        <textarea
+                          {...register('formFields.gradeOptionsText' as any)}
+                          rows={4}
+                          className={textareaClassName}
+                          placeholder="예비1학년&#10;예비2학년&#10;예비3학년"
+                        />
+                      </Field>
+                    </div>
                   </div>
 
                   <div className="space-y-3 rounded-2xl border border-gray-200 p-4">
@@ -799,6 +830,65 @@ export default function SchoolSettings() {
                       />
                       <span className="text-sm text-gray-700">취소 버튼 노출</span>
                     </label>
+                  </div>
+                </div>
+              </section>
+
+              <section className="border-b pb-6">
+                <h3 className="mb-4 text-base font-semibold text-gray-900 flex items-center gap-2">
+                  <CheckSquare className="h-5 w-5 text-blue-600" />
+                  이용 약관 설정
+                </h3>
+                <div className="grid gap-6">
+                  {/* Privacy Policy */}
+                  <div className="rounded-2xl border border-gray-200 p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <p className="font-bold text-gray-900 text-sm">개인정보 수집 및 이용 동의 (필수)</p>
+                      <label className="flex items-center gap-2 text-xs text-gray-500">
+                        <input {...register('terms.privacy.required')} type="checkbox" className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                        필수 동의 항목으로 설정
+                      </label>
+                    </div>
+                    <Field label="약관 제목">
+                      <input {...register('terms.privacy.title')} type="text" className={inputClassName} placeholder="예: [필수] 개인정보 수집 및 이용 동의" />
+                    </Field>
+                    <Field label="약관 내용">
+                      <textarea {...register('terms.privacy.content')} rows={5} className={textareaClassName} placeholder="약관 내용을 입력해 주세요." />
+                    </Field>
+                  </div>
+
+                  {/* Third Party Consent */}
+                  <div className="rounded-2xl border border-gray-200 p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <p className="font-bold text-gray-900 text-sm">개인정보 제3자 제공 동의 (필수)</p>
+                      <label className="flex items-center gap-2 text-xs text-gray-500">
+                        <input {...register('terms.thirdParty.required')} type="checkbox" className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                        필수 동의 항목으로 설정
+                      </label>
+                    </div>
+                    <Field label="약관 제목">
+                      <input {...register('terms.thirdParty.title')} type="text" className={inputClassName} placeholder="예: [필수] 개인정보 제3자 제공 동의" />
+                    </Field>
+                    <Field label="약관 내용">
+                      <textarea {...register('terms.thirdParty.content')} rows={5} className={textareaClassName} placeholder="약관 내용을 입력해 주세요." />
+                    </Field>
+                  </div>
+
+                  {/* SMS Consent */}
+                  <div className="rounded-2xl border border-gray-200 p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <p className="font-bold text-gray-900 text-sm">알림톡 및 문자 수신 동의 (필수 어뷰징 주의)</p>
+                      <label className="flex items-center gap-2 text-xs text-gray-500">
+                        <input {...register('terms.sms.required')} type="checkbox" className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                        필수 동의 항목으로 설정
+                      </label>
+                    </div>
+                    <Field label="약관 제목">
+                      <input {...register('terms.sms.title')} type="text" className={inputClassName} placeholder="예: [필수] 알림톡 및 문자 수신 동의" />
+                    </Field>
+                    <Field label="약관 내용">
+                      <textarea {...register('terms.sms.content')} rows={5} className={textareaClassName} placeholder="약관 내용을 입력해 주세요." />
+                    </Field>
                   </div>
                 </div>
               </section>
