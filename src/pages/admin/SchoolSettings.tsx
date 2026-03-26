@@ -205,6 +205,7 @@ export default function SchoolSettings() {
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [templateLoadError, setTemplateLoadError] = useState<string | null>(null);
   const [templateLoadSuccess, setTemplateLoadSuccess] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   const { register, handleSubmit, setValue, watch } = useForm<SettingsFormValues>({
     defaultValues: {
@@ -415,6 +416,30 @@ export default function SchoolSettings() {
       setReservations([]);
     } finally {
       setLoadingReservations(false);
+    }
+  };
+
+  const handleFullReset = async () => {
+    if (!window.confirm('경고: 해당 학교의 모든 신청 내역, 예약 세션, 대기열이 즉시 초기화됩니다.\n정말로 모든 데이터를 리셋하시겠습니까?')) return;
+    
+    const confirmInput = prompt('초기화를 위해 "데이터초기화" 라고 정확히 입력해 주세요.');
+    if (confirmInput !== '데이터초기화') {
+      alert('입력된 문구가 정확하지 않습니다.');
+      return;
+    }
+
+    setResetting(true);
+    try {
+      const resetFn = httpsCallable(functions, 'resetSchoolState');
+      await resetFn({ schoolId });
+      alert('모든 데이터가 성공적으로 초기화되었습니다.');
+      // 데이터 갱신을 위해 새로고침 또는 리로드
+      window.location.reload();
+    } catch (error: any) {
+      console.error('Reset error:', error);
+      alert('초기화 중 오류가 발생했습니다: ' + (error.message || '알 수 없는 오류'));
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -1037,6 +1062,28 @@ export default function SchoolSettings() {
                   <Save className="h-5 w-5" />
                   설정 저장
                 </button>
+              </div>
+
+              {/* Danger Zone */}
+              <div className="mt-12 rounded-2xl border border-rose-100 bg-rose-50/30 p-6">
+                <h4 className="flex items-center gap-2 text-sm font-bold text-rose-600">
+                  <AlertTriangle className="h-4 w-4" />
+                  위험 구역 (Danger Zone)
+                </h4>
+                <div className="mt-3 flex flex-col justify-between gap-4 md:flex-row md:items-center">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">학교 데이터 전체 초기화</p>
+                    <p className="text-xs text-gray-500">모든 신청 내역, 대기열, 예약 세션, 통계를 0으로 리셋합니다. 복구할 수 없습니다.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleFullReset}
+                    disabled={resetting}
+                    className="rounded-xl border border-rose-200 bg-white px-5 py-2.5 text-sm font-bold text-rose-600 transition-colors hover:bg-rose-50 disabled:opacity-50"
+                  >
+                    {resetting ? '초기화 중...' : '전체 데이터 초기화'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>

@@ -2600,12 +2600,12 @@ export const getAdminReservations = functionsV1.https.onCall(async (request: any
 export const syncSchoolSlots = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
     const { data, auth } = normalizeCallableRequest(request, legacyContext);
     if (!auth) {
-        throw new functions.https.HttpsError('unauthenticated', '??? ?????.');
+        throw new functions.https.HttpsError('unauthenticated', '인증이 필요합니다.');
     }
 
     const { schoolId, total } = data;
     if (!schoolId || typeof total !== 'number' || total < 0) {
-        throw new functions.https.HttpsError('invalid-argument', 'schoolId? total? ???? ????? ???.');
+        throw new functions.https.HttpsError('invalid-argument', 'schoolId와 total은 필수이며 양수여야 합니다.');
     }
 
     await assertAdminAccessToSchool(auth.uid, schoolId);
@@ -2629,6 +2629,83 @@ export const syncSchoolSlots = functionsV1.https.onCall(async (request: any, leg
         success: true,
         slots: result.snapshot?.val() || null
     };
+});
+
+/**
+ * 학교 데이터 전체 초기화 (Reset All State)
+ * 신청 내역, 예약 세션, 대기열, 통계를 모두 0으로 초기화합니다.
+ */
+export const resetSchoolState = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
+    const { data, auth } = normalizeCallableRequest(request, legacyContext);
+    if (!auth) throw new functions.https.HttpsError('unauthenticated', '인증이 필요하며 관리자만 가능합니다.');
+    
+    const { schoolId } = data;
+    if (!schoolId) throw new functions.https.HttpsError('invalid-argument', 'schoolId가 필요합니다.');
+
+    // 1. 관리자 권한 확인 (MASTER 또는 해당 학교 관리자)
+    await assertAdminAccessToSchool(auth.uid, schoolId);
+
+    const now = Date.now();
+    const db = admin.firestore();
+    const rtdb = admin.database();
+
+    try {
+        // 2. Firestore 신청 내역(Registrations) 전체 삭제 (Batch)
+        const registrationsRef = db.collection(`schools/${schoolId}/registrations`);
+        const snapshot = await registrationsRef.get();
+        if (!snapshot.empty) {
+            const batch = db.batch();
+            snapshot.docs.forEach(doc => batch.delete(doc.ref));
+            await batch.commit();
+        }
+
+        // 3. Firestore 학교 통계(Stats) 초기화
+        await db.doc(`schools/${schoolId}`).update({
+            'stats.confirmedCount': 0,
+            'stats.waitlistedCount': 0,
+            'updatedAt': now
+        });
+
+        // 4. Firestore AB 테스트 메트릭 삭제
+        const metricsRef = db.collection('abTestMetrics').where('schoolId', '==', schoolId);
+        const metricsSnapshot = await metricsRef.get();
+        if (!metricsSnapshot.empty) {
+            const mBatch = db.batch();
+            metricsSnapshot.docs.forEach(doc => mBatch.delete(doc.ref));
+            await mBatch.commit();
+        }
+
+        // 5. RTDB 슬롯(Slots) 초기화
+        const schoolDoc = await db.doc(`schools/${schoolId}`).get();
+        const schoolData = schoolDoc.data();
+        const totalCap = (schoolData?.maxCapacity || 0) + (schoolData?.waitlistCapacity || 0);
+
+        await rtdb.ref(`slots/${schoolId}`).set({
+            total: totalCap,
+            reserved: 0,
+            confirmed: 0,
+            available: totalCap,
+            lastUpdated: now
+        });
+
+        // 6. RTDB 예약 세션(Reservations) 및 대기열(Queue) 전체 삭제
+        await rtdb.ref(`reservations/${schoolId}`).remove();
+        await rtdb.ref(`queue/${schoolId}`).remove();
+        
+        // 대기열 메타 정보 초기화
+        await rtdb.ref(`queue/${schoolId}/meta`).set({
+            currentNumber: 0,
+            lastAssignedNumber: 0,
+            lastAdvancedAt: 0,
+            updatedAt: now
+        });
+
+        functions.logger.info(`[ResetSchoolState] Success: Full reset performed for school ${schoolId} by ${auth.uid}`);
+        return { success: true, message: '모든 데이터가 성공적으로 초기화되었습니다.' };
+    } catch (error) {
+        functions.logger.error(`[ResetSchoolState] Error:`, error);
+        throw new functions.https.HttpsError('internal', '초기화 작업 중 오류가 발생했습니다.');
+    }
 });
 
 // ============ Registration Lookup & Cancel (공개 사용자용) ============
