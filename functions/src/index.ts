@@ -945,12 +945,23 @@ export const joinQueue = functionsV1.https.onCall(async (request: any, legacyCon
             lastSeenAt: now
         };
 
+        // 첫 사용자이거나 대기열이 비어있는 경우: 즉시 currentNumber를 동기화하여
+        // autoAdvanceQueue 스케줄러(매 1분)를 기다리지 않고 바로 진입 가능하게 함
+        const isFirstEntry = Object.keys(entries).length === 1;
+        const needsImmediateAdvance = meta.currentNumber < nextNumber && (
+            isFirstEntry ||
+            meta.lastAdvancedAt === 0
+        );
+        const newCurrentNumber = needsImmediateAdvance
+            ? nextNumber
+            : meta.currentNumber;
+
         return {
             ...nextState,
             meta: {
-                currentNumber: meta.currentNumber,
+                currentNumber: newCurrentNumber,
                 lastAssignedNumber: nextNumber,
-                lastAdvancedAt: meta.lastAdvancedAt,
+                lastAdvancedAt: needsImmediateAdvance ? now : meta.lastAdvancedAt,
                 updatedAt: now
             },
             entries
@@ -1032,6 +1043,27 @@ export const startRegistrationSession = functionsV1.https.onCall(async (request:
     }
 
     return createReservationSession(schoolId, userId);
+});
+
+/**
+ * 클라이언트에서 세션 만료를 감지했을 때 서버에 알리는 엔드포인트.
+ * expireReservation을 호출하여 슬롯 반환 + 대기열 entry 삭제를 보장한다.
+ */
+export const forceExpireSession = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
+    const { data, auth } = normalizeCallableRequest(request, legacyContext);
+    if (!auth) {
+        throw new functions.https.HttpsError('unauthenticated', '인증이 필요합니다.');
+    }
+
+    const { schoolId, sessionId } = data?.data || data;
+
+    if (!schoolId || !sessionId) {
+        throw new functions.https.HttpsError('invalid-argument', '필수 정보가 누락되었습니다.');
+    }
+
+    await expireReservation(schoolId, sessionId, Date.now());
+
+    return { success: true };
 });
 
 export const getReservationSession = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
