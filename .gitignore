@@ -24,4 +24,4 @@ scripts/serviceAccountKey.json
 *.ntvs*
 *.njsproj
 *.sln
-*.sw?
+*.sw?.tools/
