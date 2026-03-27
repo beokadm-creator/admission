@@ -78,7 +78,7 @@ export default function RegisterPage() {
       try {
         const storedSessionId = localStorage.getItem(`registrationSessionId_${schoolId}`);
         if (!storedSessionId) {
-          navigate(`/${schoolId}/queue`);
+          navigate(`/${schoolId}`);
           return;
         }
 
@@ -103,8 +103,8 @@ export default function RegisterPage() {
         setReservingSlot(false);
         localStorage.removeItem(`registrationSessionId_${schoolId}`);
         localStorage.removeItem(`registrationExpiresAt_${schoolId}`);
-        alert(error?.message || '등록 세션을 확인할 수 없습니다. 다시 대기열로 이동합니다.');
-        navigate(`/${schoolId}/queue`);
+        alert(error?.message || '등록 세션을 확인할 수 없습니다. 메인으로 이동합니다.');
+        navigate(`/${schoolId}`);
       }
     };
 
@@ -122,7 +122,18 @@ export default function RegisterPage() {
       localStorage.removeItem(`registrationSessionId_${schoolId}`);
       localStorage.removeItem(`registrationExpiresAt_${schoolId}`);
       setExpiredToast(true);
-      setTimeout(() => navigate(`/${schoolId}/queue`), 2500);
+
+      // 서버에 만료 알림 → 슬롯 반환 + 대기열 entry 삭제 보장
+      if (sessionId) {
+        try {
+          const fns = getFunctions();
+          httpsCallable(fns, 'forceExpireSession')({ schoolId, sessionId }).catch(() => {});
+        } catch {
+          /* 이미 만료되었을 수 있으므로 무시 */
+        }
+      }
+
+      setTimeout(() => navigate(`/${schoolId}`), 2500);
     };
 
     const tick = () => {
@@ -206,10 +217,10 @@ export default function RegisterPage() {
         localStorage.removeItem(`registrationSessionId_${schoolId}`);
         localStorage.removeItem(`registrationExpiresAt_${schoolId}`);
         alert(error?.message || '세션이 만료되었습니다. 다시 시도해주세요.');
-        navigate(`/${schoolId}/queue`);
+        navigate(`/${schoolId}`);
       } else if (error?.code === 'functions/failed-precondition') {
         alert(error?.message || '유효하지 않은 등록 세션입니다.');
-        navigate(`/${schoolId}/queue`);
+        navigate(`/${schoolId}`);
       } else if (error?.code === 'functions/already-exists') {
         alert('이미 동일한 전화번호로 신청된 내역이 있습니다. 신청 조회 페이지에서 확인해주세요.');
       } else {
@@ -240,7 +251,7 @@ export default function RegisterPage() {
             <Clock className="w-8 h-8 text-amber-500" />
           </div>
           <h3 className="text-xl font-bold text-gray-900">입력 순서가 만료되었습니다</h3>
-          <p className="text-sm text-gray-400 mt-2 font-medium">대기열 현황판으로 이동합니다...</p>
+          <p className="text-sm text-gray-400 mt-2 font-medium">메인 페이지로 이동합니다...</p>
           <div className="mt-5 w-full h-1 bg-gray-100 rounded-full overflow-hidden">
             <div className="h-full bg-amber-400 animate-[shrink_2.5s_linear_forwards]" style={{ width: '100%' }} />
           </div>
