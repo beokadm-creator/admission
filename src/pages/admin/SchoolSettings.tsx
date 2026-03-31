@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
+import { deleteField, doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import {
   Activity,
@@ -307,6 +307,8 @@ export default function SchoolSettings() {
         }
 
         const data = docSnap.data() as SchoolConfig;
+        const privateSettingsSnap = await getDoc(doc(db, 'schools', schoolId, 'privateSettings', 'alimtalk'));
+        const privateAlimtalk = privateSettingsSnap.exists() ? privateSettingsSnap.data() : null;
         const heroMessage = data.heroMessage || data.parkingMessage || '';
         setValue('id', schoolId);
         setValue('name', data.name || '');
@@ -328,9 +330,9 @@ export default function SchoolSettings() {
         setValue('formFields.collectSchoolName', !!data.formFields?.collectSchoolName);
         setValue('formFields.collectGrade', !!data.formFields?.collectGrade);
         setValue('formFields.collectStudentId', !!data.formFields?.collectStudentId);
-        setValue('alimtalkSettings.nhnAppKey', data.alimtalkSettings?.nhnAppKey || '');
-        setValue('alimtalkSettings.nhnSecretKey', data.alimtalkSettings?.nhnSecretKey || '');
-        setValue('alimtalkSettings.nhnSenderKey', data.alimtalkSettings?.nhnSenderKey || '');
+        setValue('alimtalkSettings.nhnAppKey', privateAlimtalk?.nhnAppKey || '');
+        setValue('alimtalkSettings.nhnSecretKey', privateAlimtalk?.nhnSecretKey || '');
+        setValue('alimtalkSettings.nhnSenderKey', privateAlimtalk?.nhnSenderKey || '');
         setValue(
           'alimtalkSettings.successTemplate',
           data.alimtalkSettings?.successTemplate || data.alimtalkSettings?.confirmTemplateCode || ''
@@ -547,10 +549,6 @@ export default function SchoolSettings() {
             : []
         },
         alimtalkSettings: {
-          ...data.alimtalkSettings,
-          nhnAppKey: data.alimtalkSettings?.nhnAppKey?.trim() || '',
-          nhnSecretKey: data.alimtalkSettings?.nhnSecretKey?.trim() || '',
-          nhnSenderKey: data.alimtalkSettings?.nhnSenderKey?.trim() || '',
           successTemplate,
           waitlistTemplate,
           promoteTemplate,
@@ -561,6 +559,27 @@ export default function SchoolSettings() {
       };
 
       await setDoc(doc(db, 'schools', schoolId), sanitizedDoc, { merge: true });
+      await setDoc(
+        doc(db, 'schools', schoolId, 'privateSettings', 'alimtalk'),
+        {
+          nhnAppKey: data.alimtalkSettings?.nhnAppKey?.trim() || '',
+          nhnSecretKey: data.alimtalkSettings?.nhnSecretKey?.trim() || '',
+          nhnSenderKey: data.alimtalkSettings?.nhnSenderKey?.trim() || '',
+          updatedAt: Date.now()
+        },
+        { merge: true }
+      );
+      await setDoc(
+        doc(db, 'schools', schoolId),
+        {
+          alimtalkSettings: {
+            nhnAppKey: deleteField(),
+            nhnSecretKey: deleteField(),
+            nhnSenderKey: deleteField()
+          }
+        },
+        { merge: true }
+      );
       await setDoc(
         doc(db, 'schools', schoolId, 'queueState', 'current'),
         {

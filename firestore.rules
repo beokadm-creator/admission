@@ -25,6 +25,28 @@ service cloud.firestore {
         );
     }
 
+    function isQueueStateAdminUpdate(schoolId) {
+      return isAdminOfSchool(schoolId) &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'totalCapacity',
+          'availableCapacity',
+          'queueEnabled',
+          'maxActiveSessions',
+          'updatedAt'
+        ]);
+    }
+
+    function isQueueStateAdminCreate(schoolId) {
+      return isAdminOfSchool(schoolId) &&
+        request.resource.data.keys().hasOnly([
+          'totalCapacity',
+          'availableCapacity',
+          'queueEnabled',
+          'maxActiveSessions',
+          'updatedAt'
+        ]);
+    }
+
     match /admins/{userId} {
       allow read: if isAuthenticated() && request.auth.uid == userId;
       allow create, update, delete: if isMaster();
@@ -46,7 +68,9 @@ service cloud.firestore {
 
       match /queueState/{docId} {
         allow read: if true;
-        allow write: if false;
+        allow create: if isQueueStateAdminCreate(schoolId);
+        allow update: if isQueueStateAdminUpdate(schoolId);
+        allow delete: if false;
       }
 
       match /queueEntries/{userId} {

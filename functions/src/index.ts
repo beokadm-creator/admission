@@ -36,6 +36,12 @@ const NHN_APP_KEY = (functionsConfig as any).nhn?.appkey;
 const NHN_SECRET_KEY = (functionsConfig as any).nhn?.secretkey;
 const NHN_SENDER_KEY = (functionsConfig as any).nhn?.sender_key;
 
+interface AlimTalkCredentials {
+  appKey?: string;
+  secretKey?: string;
+  senderKey?: string;
+}
+
 interface NormalizedCallableRequest {
   data: any;
   auth: any;
@@ -159,19 +165,39 @@ async function assertAdminAccessToSchool(uid: string, schoolId: string) {
   throw new functions.https.HttpsError('permission-denied', '�ش� �б��� ������ ������ �����ϴ�.');
 }
 
-async function sendAlimTalk(to: string, templateCode: string, templateParams: any) {
-  if (!NHN_APP_KEY || !NHN_SECRET_KEY || !NHN_SENDER_KEY) {
+async function getSchoolAlimTalkConfig(schoolId: string) {
+  const [schoolDoc, privateSettingsDoc] = await Promise.all([
+    admin.firestore().doc(`schools/${schoolId}`).get(),
+    admin.firestore().doc(`schools/${schoolId}/privateSettings/alimtalk`).get()
+  ]);
+
+  return {
+    schoolConfig: schoolDoc.exists ? schoolDoc.data() : null,
+    credentials: {
+      appKey: privateSettingsDoc.data()?.nhnAppKey || NHN_APP_KEY,
+      secretKey: privateSettingsDoc.data()?.nhnSecretKey || NHN_SECRET_KEY,
+      senderKey: privateSettingsDoc.data()?.nhnSenderKey || NHN_SENDER_KEY
+    } as AlimTalkCredentials
+  };
+}
+
+async function sendAlimTalk(to: string, templateCode: string, templateParams: any, credentials?: AlimTalkCredentials) {
+  const appKey = credentials?.appKey || NHN_APP_KEY;
+  const secretKey = credentials?.secretKey || NHN_SECRET_KEY;
+  const senderKey = credentials?.senderKey || NHN_SENDER_KEY;
+
+  if (!appKey || !secretKey || !senderKey) {
     functions.logger.warn('[AlimTalk] Missing NHN credentials. Skipping send.');
     return;
   }
 
-  const url = `https://api-alimtalk.cloud.toast.com/alimtalk/v1.5/appkeys/${NHN_APP_KEY}/messages`;
+  const url = `https://api-alimtalk.cloud.toast.com/alimtalk/v1.5/appkeys/${appKey}/messages`;
 
   try {
     const response = await axios.post(
       url,
       {
-        senderKey: NHN_SENDER_KEY,
+        senderKey,
         templateCode,
         recipientList: [
           {
@@ -183,7 +209,7 @@ async function sendAlimTalk(to: string, templateCode: string, templateParams: an
       {
         headers: {
           'Content-Type': 'application/json;charset=UTF-8',
-          'X-Secret-Key': NHN_SECRET_KEY
+          'X-Secret-Key': secretKey
         }
       }
     );
@@ -465,12 +491,11 @@ export const onRegistrationCreateQueued = firestoreTriggers
       return;
     }
 
-    const schoolDoc = await admin.firestore().doc(`schools/${schoolId}`).get();
-    if (!schoolDoc.exists) {
+    const { schoolConfig, credentials } = await getSchoolAlimTalkConfig(schoolId);
+    if (!schoolConfig) {
       return;
     }
 
-    const schoolConfig = schoolDoc.data();
     const alimtalkSettings = schoolConfig?.alimtalkSettings;
     if (!alimtalkSettings) {
       return;
@@ -482,14 +507,14 @@ export const onRegistrationCreateQueued = firestoreTriggers
     };
 
     if (newData.status === 'confirmed' && alimtalkSettings.successTemplate) {
-      await sendAlimTalk(newData.phone, alimtalkSettings.successTemplate, templateParams);
+      await sendAlimTalk(newData.phone, alimtalkSettings.successTemplate, templateParams, credentials);
     }
 
     if (newData.status === 'waitlisted' && alimtalkSettings.waitlistTemplate) {
       await sendAlimTalk(newData.phone, alimtalkSettings.waitlistTemplate, {
         ...templateParams,
         rank: newData.rank || 'Unknown'
-      });
+      }, credentials);
     }
   });
 
@@ -505,15 +530,14 @@ export const onRegistrationUpdateQueued = firestoreTriggers
     }
 
     if (oldData.status === 'waitlisted' && newData.status === 'confirmed') {
-      const schoolDoc = await admin.firestore().doc(`schools/${schoolId}`).get();
-      const schoolConfig = schoolDoc.data();
+      const { schoolConfig, credentials } = await getSchoolAlimTalkConfig(schoolId);
       const alimtalkSettings = schoolConfig?.alimtalkSettings;
 
       if (alimtalkSettings?.promoteTemplate) {
         await sendAlimTalk(newData.phone, alimtalkSettings.promoteTemplate, {
           studentName: newData.studentName,
           schoolName: schoolConfig?.name || '�б�'
-        });
+        }, credentials);
       }
     }
   });
