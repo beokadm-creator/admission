@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { collection, getDocs, doc, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
-import { ref, set } from 'firebase/database';
 import { Link, useNavigate } from 'react-router-dom';
-import { db, rtdb } from '../../firebase/config';
+import { db } from '../../firebase/config';
 import { useAuth } from '../../contexts/AuthContext';
 import { SchoolConfig } from '../../types/models';
 import { Plus, Settings, Trash2, Activity, Users, Clock } from 'lucide-react';
@@ -46,9 +45,17 @@ export default function SchoolList() {
         const schoolsWithStats = await Promise.all(
           schoolList.map(async (school) => {
             try {
-              const slotDocRef = doc(db, 'schools', school.id, 'stats', 'slots');
+              const slotDocRef = doc(db, 'schools', school.id, 'queueState', 'current');
               const slotDocSnap = await getDoc(slotDocRef);
-              const slotStats = slotDocSnap.exists() ? slotDocSnap.data() as SchoolWithStats['slotStats'] : null;
+              const slotData = slotDocSnap.exists() ? slotDocSnap.data() : null;
+              const slotStats = slotData
+                ? {
+                    total: slotData.totalCapacity || 0,
+                    reserved: slotData.activeReservationCount || 0,
+                    confirmed: (slotData.confirmedCount || 0) + (slotData.waitlistedCount || 0),
+                    available: slotData.availableCapacity ?? 0
+                  }
+                : null;
               console.log('School stats:', school.id, slotStats);
               return { ...school, slotStats };
             } catch (error) {
@@ -86,6 +93,12 @@ export default function SchoolList() {
         createdAt: Date.now(),
         maxCapacity: 100,
         waitlistCapacity: 50,
+        queueSettings: {
+          enabled: true,
+          batchSize: 1,
+          batchInterval: 10000,
+          maxActiveSessions: 60
+        },
         formFields: {
           collectEmail: false,
           collectAddress: false,
@@ -113,14 +126,19 @@ export default function SchoolList() {
       };
 
       await setDoc(doc(db, 'schools', schoolId), newSchool);
-
-      // Initialize RTDB slots
-      await set(ref(rtdb, `slots/${schoolId}`), {
-        total: 100,
-        reserved: 0,
-        confirmed: 0,
-        available: 100,
-        lastUpdated: Date.now()
+      await setDoc(doc(db, 'schools', schoolId, 'queueState', 'current'), {
+        currentNumber: 0,
+        lastAssignedNumber: 0,
+        lastAdvancedAt: 0,
+        activeReservationCount: 0,
+        pendingAdmissionCount: 0,
+        confirmedCount: 0,
+        waitlistedCount: 0,
+        totalCapacity: 150,
+        availableCapacity: 150,
+        maxActiveSessions: 60,
+        updatedAt: Date.now(),
+        queueEnabled: true
       });
 
       navigate(`/admin/schools/${schoolId}`);
@@ -137,8 +155,6 @@ export default function SchoolList() {
 
     try {
       await deleteDoc(doc(db, 'schools', schoolId));
-      await set(ref(rtdb, `slots/${schoolId}`), null);
-      await set(ref(rtdb, `reservations/${schoolId}`), null);
 
       setSchools(schools.filter(s => s.id !== schoolId));
       alert('학교가 삭제되었습니다.');

@@ -1,33 +1,6 @@
 {
   "rules": {
     ".read": false,
-    ".write": false,
-
-    "queue": {
-      "$schoolId": {
-        "meta": {
-          ".read": "auth != null"
-        },
-        "entries": {
-          "$userId": {
-            ".read": "auth != null && auth.uid == $userId"
-          }
-        }
-      }
-    },
-
-    "slots": {
-      "$schoolId": {
-        ".read": "auth != null"
-      }
-    },
-
-    "reservations": {
-      ".read": false,
-      ".write": false,
-      "$schoolId": {
-        ".indexOn": ["userId", "expiresAt"]
-      }
-    }
+    ".write": false
   }
 }

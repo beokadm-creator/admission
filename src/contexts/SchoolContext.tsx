@@ -1,6 +1,6 @@
 ﻿import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { SchoolConfig } from '../types/models';
 
@@ -32,28 +32,30 @@ export function SchoolProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const fetchSchool = async () => {
-      try {
-        const docRef = doc(db, 'schools', schoolId);
-        const docSnap = await getDoc(docRef);
-
+    const docRef = doc(db, 'schools', schoolId);
+    const unsubscribe = onSnapshot(
+      docRef,
+      (docSnap) => {
         if (docSnap.exists()) {
           const schoolData = { ...docSnap.data(), id: docSnap.id } as SchoolConfig;
           setSchoolConfig(schoolData);
+          setError(null);
           document.title = `${schoolData.name} | 행사 신청 시스템`;
-          return;
+        } else {
+          setSchoolConfig(null);
+          setError('학교 정보를 찾을 수 없습니다.');
         }
 
-        setError('학교 정보를 찾을 수 없습니다.');
-      } catch (err) {
+        setLoading(false);
+      },
+      (err) => {
         console.error(err);
         setError('학교 정보를 불러오는 중 오류가 발생했습니다.');
-      } finally {
         setLoading(false);
       }
-    };
+    );
 
-    void fetchSchool();
+    return () => unsubscribe();
   }, [schoolId]);
 
   return <SchoolContext.Provider value={{ schoolConfig, loading, error }}>{children}</SchoolContext.Provider>;

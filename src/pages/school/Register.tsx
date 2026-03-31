@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { useSchool } from '../../contexts/SchoolContext';
 import { AlertTriangle, Clock, CheckCircle2, ChevronDown } from 'lucide-react';
+import { createRequestId } from '../../lib/requestId';
 
 interface TermsAccordionProps {
   title: string;
@@ -57,8 +58,8 @@ export default function RegisterPage() {
   const navigate = useNavigate();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState(0);
-  const [sessionDuration, setSessionDuration] = useState(300);
-  const [timeLeft, setTimeLeft] = useState(300);
+  const [sessionDuration, setSessionDuration] = useState(180);
+  const [timeLeft, setTimeLeft] = useState(180);
   const [slotReserved, setSlotReserved] = useState(false);
   const [reservingSlot, setReservingSlot] = useState(true);
   const [openTerms, setOpenTerms] = useState<number | null>(null);
@@ -66,6 +67,8 @@ export default function RegisterPage() {
   const [submitting, setSubmitting] = useState(false);
   const [expiredToast, setExpiredToast] = useState(false);
   const navigatingRef = useRef(false);
+  const expireRequestIdRef = useRef<string | null>(null);
+  const confirmRequestIdRef = useRef<string | null>(null);
 
   const { register, handleSubmit, formState: { errors } } = useForm<RegisterFormInputs>();
 
@@ -127,7 +130,10 @@ export default function RegisterPage() {
       if (sessionId) {
         try {
           const fns = getFunctions();
-          httpsCallable(fns, 'forceExpireSession')({ schoolId, sessionId }).catch(() => {});
+          if (!expireRequestIdRef.current) {
+            expireRequestIdRef.current = createRequestId('forceExpire');
+          }
+          httpsCallable(fns, 'forceExpireSession')({ schoolId, sessionId, requestId: expireRequestIdRef.current }).catch(() => {});
         } catch {
           /* 이미 만료되었을 수 있으므로 무시 */
         }
@@ -179,6 +185,9 @@ export default function RegisterPage() {
     }
 
     setSubmitting(true);
+    if (!confirmRequestIdRef.current) {
+      confirmRequestIdRef.current = createRequestId('confirmReservation');
+    }
 
     try {
       const functions = getFunctions();
@@ -200,7 +209,8 @@ export default function RegisterPage() {
       const result: any = await confirmReservationFn({
         schoolId,
         sessionId,
-        formData
+        formData,
+        requestId: confirmRequestIdRef.current
       });
 
       if (!result.data?.success) {
@@ -211,6 +221,7 @@ export default function RegisterPage() {
       localStorage.removeItem(`registrationExpiresAt_${schoolId}`);
       navigate(`/${schoolId}/complete`, { state: { status: result.data.status || 'confirmed' } });
     } catch (error: any) {
+      confirmRequestIdRef.current = null;
       console.error('[Registration] Error:', error);
 
       if (error?.code === 'functions/deadline-exceeded') {
@@ -238,7 +249,7 @@ export default function RegisterPage() {
   };
 
   const getTimeColor = () => {
-    if (timeLeft > 180) return 'green';
+    if (timeLeft > 120) return 'green';
     if (timeLeft > 60) return 'yellow';
     return 'red';
   };

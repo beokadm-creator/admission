@@ -1,9 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
-import { onValue, ref } from 'firebase/database';
 import {
   Activity,
   AlertTriangle,
@@ -19,7 +18,7 @@ import {
   Users
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { db, functions, rtdb } from '../../firebase/config';
+import { db, functions } from '../../firebase/config';
 import RegistrationList from '../../components/RegistrationList';
 import { useAuth } from '../../contexts/AuthContext';
 import { SchoolConfig } from '../../types/models';
@@ -30,6 +29,13 @@ interface SlotStats {
   confirmed: number;
   available: number;
   lastUpdated: number;
+  currentNumber?: number;
+  lastAssignedNumber?: number;
+  pendingAdmissionCount?: number;
+  waitlistedCount?: number;
+  queueEnabled?: boolean;
+  lastAdvancedAt?: number;
+  maxActiveSessions?: number;
 }
 
 interface Reservation {
@@ -225,8 +231,9 @@ export default function SchoolSettings() {
       previewToken: '',
       queueSettings: {
         enabled: true,
-        batchSize: 80,
-        batchInterval: 60
+        batchSize: 1,
+        batchInterval: 10,
+        maxActiveSessions: 60
       },
       formFields: {
         collectEmail: false,
@@ -265,6 +272,7 @@ export default function SchoolSettings() {
   const watchedWaitlistCapacity = watch('waitlistCapacity') || 0;
   const watchedBatchSize = watch('queueSettings.batchSize') || 0;
   const watchedBatchIntervalSeconds = watch('queueSettings.batchInterval') || 0;
+  const watchedMaxActiveSessions = watch('queueSettings.maxActiveSessions') || 60;
   const watchedNhnAppKey = watch('alimtalkSettings.nhnAppKey') || '';
   const watchedNhnSecretKey = watch('alimtalkSettings.nhnSecretKey') || '';
   const watchedSuccessTemplate = watch('alimtalkSettings.successTemplate') || '';
@@ -306,7 +314,7 @@ export default function SchoolSettings() {
         const heroMessage = data.heroMessage || data.parkingMessage || '';
         const queueBatchIntervalSeconds = data.queueSettings?.batchInterval
           ? Math.max(1, Math.round(data.queueSettings.batchInterval / 1000))
-          : 60;
+          : 10;
 
         setValue('id', schoolId);
         setValue('name', data.name || '');
@@ -322,8 +330,9 @@ export default function SchoolSettings() {
         setValue('popupContent', data.popupContent || '');
         setValue('previewToken', data.previewToken || '');
         setValue('queueSettings.enabled', data.queueSettings?.enabled !== false);
-        setValue('queueSettings.batchSize', data.queueSettings?.batchSize || 80);
+        setValue('queueSettings.batchSize', data.queueSettings?.batchSize || 1);
         setValue('queueSettings.batchInterval', queueBatchIntervalSeconds);
+        setValue('queueSettings.maxActiveSessions', data.queueSettings?.maxActiveSessions || 60);
         setValue('formFields.collectEmail', !!data.formFields?.collectEmail);
         setValue('formFields.collectAddress', !!data.formFields?.collectAddress);
         setValue('formFields.collectSchoolName', !!data.formFields?.collectSchoolName);
@@ -368,12 +377,26 @@ export default function SchoolSettings() {
   useEffect(() => {
     if (!schoolId) return;
 
-    const slotsRef = ref(rtdb, `slots/${schoolId}`);
-    const unsubscribe = onValue(
-      slotsRef,
+    const queueStateRef = doc(db, 'schools', schoolId, 'queueState', 'current');
+    const unsubscribe = onSnapshot(
+      queueStateRef,
       (snapshot) => {
         if (snapshot.exists()) {
-          setSlotStats(snapshot.val() as SlotStats);
+          const data = snapshot.data();
+          setSlotStats({
+            total: data.totalCapacity || watchedRegularCapacity + watchedWaitlistCapacity,
+            reserved: data.activeReservationCount || 0,
+            confirmed: (data.confirmedCount || 0) + (data.waitlistedCount || 0),
+            available: data.availableCapacity ?? watchedRegularCapacity + watchedWaitlistCapacity,
+            lastUpdated: data.updatedAt || Date.now(),
+            currentNumber: data.currentNumber || 0,
+            lastAssignedNumber: data.lastAssignedNumber || 0,
+            pendingAdmissionCount: data.pendingAdmissionCount || 0,
+            waitlistedCount: data.waitlistedCount || 0,
+            queueEnabled: data.queueEnabled !== false,
+            lastAdvancedAt: data.lastAdvancedAt || 0,
+            maxActiveSessions: data.maxActiveSessions || 60
+          });
           return;
         }
 
@@ -498,7 +521,8 @@ export default function SchoolSettings() {
     try {
       const heroCopy = data.heroMessage?.trim() || '';
       const programCopy = data.programInfo?.trim() || '';
-      const batchIntervalMs = Math.max(1000, (data.queueSettings?.batchInterval || 60) * 1000);
+      const batchIntervalMs = Math.max(1000, (data.queueSettings?.batchInterval || 10) * 1000);
+      const maxActiveSessions = Math.max(1, data.queueSettings?.maxActiveSessions || 60);
       const total = (data.maxCapacity || 0) + (data.waitlistCapacity || 0);
       const successTemplate =
         data.alimtalkSettings?.successTemplate?.trim() || data.alimtalkSettings?.confirmTemplateCode?.trim() || '';
@@ -518,8 +542,9 @@ export default function SchoolSettings() {
         previewToken: data.previewToken || '',
         queueSettings: {
           enabled: data.queueSettings?.enabled !== false,
-          batchSize: data.queueSettings?.batchSize || 80,
-          batchInterval: batchIntervalMs
+          batchSize: Math.max(1, data.queueSettings?.batchSize || 1),
+          batchInterval: batchIntervalMs,
+          maxActiveSessions
         },
         formFields: {
           collectEmail: !!data.formFields?.collectEmail,
@@ -549,9 +574,17 @@ export default function SchoolSettings() {
       };
 
       await setDoc(doc(db, 'schools', schoolId), sanitizedDoc, { merge: true });
-
-      const syncSlots = httpsCallable(functions, 'syncSchoolSlots');
-      await syncSlots({ schoolId, total });
+      await setDoc(
+        doc(db, 'schools', schoolId, 'queueState', 'current'),
+        {
+          totalCapacity: total,
+          availableCapacity: Math.max(0, total - ((slotStats?.confirmed || 0) + (slotStats?.reserved || 0))),
+          queueEnabled: sanitizedDoc.queueSettings.enabled,
+          maxActiveSessions: sanitizedDoc.queueSettings.maxActiveSessions,
+          updatedAt: Date.now()
+        },
+        { merge: true }
+      );
 
       alert('설정이 저장되었습니다.');
     } catch (error) {
@@ -781,6 +814,14 @@ export default function SchoolSettings() {
                       className={inputClassName}
                     />
                   </Field>
+                  <Field label="동시 작성 가능 인원">
+                    <input
+                      {...register('queueSettings.maxActiveSessions', { required: true, valueAsNumber: true })}
+                      type="number"
+                      min={1}
+                      className={inputClassName}
+                    />
+                  </Field>
                 </div>
 
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -800,6 +841,15 @@ export default function SchoolSettings() {
                     />
                     <span className="text-sm font-medium text-gray-700">학교 페이지 활성화</span>
                   </label>
+                </div>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-1">
+                  <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+                    <p className="font-semibold text-gray-900">현재 운영 기준</p>
+                    <p className="mt-2">동시 작성 인원: {watchedMaxActiveSessions.toLocaleString()}명</p>
+                    <p className="mt-1">순차 입장: {watchedBatchSize.toLocaleString()}명 / {watchedBatchIntervalSeconds}초</p>
+                    <p className="mt-1">오픈 시간에는 모든 사용자에게 버튼이 동시에 열리고, 클릭 순서대로 번호가 부여됩니다.</p>
+                  </div>
                 </div>
               </section>
 

@@ -3,6 +3,9 @@
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
+  "database": {
+    "rules": "database.rules.json"
+  },
   "functions": [
     {
       "source": "functions",
@@ -33,9 +36,6 @@
       }
     ]
   },
-  "database": {
-    "rules": "database.rules.json"
-  },
   "emulators": {
     "ui": {
       "enabled": true,
@@ -51,13 +51,13 @@
       "host": "127.0.0.1",
       "port": 18085
     },
-    "database": {
-      "host": "127.0.0.1",
-      "port": 19005
-    },
     "auth": {
       "host": "127.0.0.1",
       "port": 9099
+    },
+    "database": {
+      "host": "127.0.0.1",
+      "port": 19005
     },
     "pubsub": {
       "host": "127.0.0.1",

@@ -1,84 +1,85 @@
-export type UserRole = 'MASTER' | 'SCHOOL';
+﻿export type UserRole = 'MASTER' | 'SCHOOL';
 
 /**
- * 관리자 (admins 컬렉션)
+ * 愿由ъ옄 (admins 而щ젆??
  */
 export interface AdminUser {
   id: string; // Auth UID
   email: string;
   role: UserRole;
-  assignedSchoolId?: string; // SCHOOL 권한일 경우 필수
+  assignedSchoolId?: string; // SCHOOL 沅뚰븳??寃쎌슦 ?占쎌닔
   name: string;
   createdAt: number; // Timestamp
 }
 
 /**
- * 학교 설정 (schools 컬렉션)
+ * ?占쎄탳 ?占쎌젙 (schools 而щ젆??
  */
 export interface SchoolConfig {
-  id: string; // 학교 ID (URL 파라미터로 사용)
+  id: string; // ?占쎄탳 ID (URL ?占쎈씪誘명꽣占??占쎌슜)
   
-  // --- 1. 기본/정원 설정 ---
+  // --- 1. 湲곕낯/?占쎌썝 ?占쎌젙 ---
   name: string;
   logoUrl: string;
-  maxCapacity: number;     // 정상 접수 정원
-  waitlistCapacity: number; // 대기 접수 정원 (0이면 대기 없음)
+  maxCapacity: number;     // ?占쎌긽 ?占쎌닔 ?占쎌썝
+  waitlistCapacity: number; // ?占쏙옙??占쎌닔 ?占쎌썝 (0?占쎈㈃ ?占쏙옙??占쎌쓬)
   
-  // --- 2. 페이지 제어 ---
-  openDateTime: string;    // ISO string (접수 시작 시간)
-  eventDate?: string;      // ISO string (행사 일자)
+  // --- 2. ?占쎌씠吏 ?占쎌뼱 ---
+  openDateTime: string;    // ISO string (?占쎌닔 ?占쎌옉 ?占쎄컙)
+  eventDate?: string;      // ISO string (?占쎌궗 ?占쎌옄)
   heroMessage?: string;    // Hero text used across gate and main screens
   programInfo?: string;    // Brief description of the event/program
-  programImageUrl?: string; // 추가: 프로그램 이미지 URL (레이어 팝업용)
+  programImageUrl?: string; // 異뷂옙?: ?占쎈줈洹몃옩 ?占쏙옙?吏 URL (?占쎌씠???占쎌뾽??
   parkingMessage?: string; // Legacy hero copy; retained for backwards compatibility
-  usePopup: boolean;       // 팝업 사용 여부
-  popupContent?: string;   // 팝업 내용 (HTML or Text)
-  previewToken?: string;   // 미리보기용 토큰 (오픈 전 접근용)
+  usePopup: boolean;       // ?占쎌뾽 ?占쎌슜 ?占쏙옙?
+  popupContent?: string;   // ?占쎌뾽 ?占쎌슜 (HTML or Text)
+  previewToken?: string;   // 誘몃━蹂닿린???占쏀겙 (?占쏀뵂 ???占쎄렐??
 
-  // --- 2.5 대기열 설정 (queueSettings) ---
+  // --- 2.5 ?占쎄린???占쎌젙 (queueSettings) ---
   queueSettings?: {
-    batchSize: number;        // 한 번에 입장시킬 인원 (기본값: 100)
-    batchInterval: number;    // 배치 간격 (밀리초, 기본값: 60000 = 1분)
-    enabled: boolean;         // 대기열 시스템 사용 여부
+    batchSize: number;        // ??踰덉뿉 ?占쎌옣?占쏀궗 ?占쎌썝 (湲곕낯占? 100)
+    batchInterval: number;    // ?? ?? (???)
+    maxActiveSessions: number; // ??? ?? ??? ?? ??
+    enabled: boolean;         // queue enabled
   };
   
-  // --- 2.6 A/B 테스트 설정 (abTestSettings) ---
+  // --- 2.6 A/B ?占쎌뒪???占쎌젙 (abTestSettings) ---
   abTestSettings?: {
-    enabled: boolean;         // A/B 테스트 활성화 여부
-    splitRatio: number;       // Group A 할당 비율 (0-100, 기본값: 50)
-    startDate?: string;       // 테스트 시작 시간
-    endDate?: string;         // 테스트 종료 시간
+    enabled: boolean;         // A/B ?占쎌뒪???占쎌꽦???占쏙옙?
+    splitRatio: number;       // Group A ?占쎈떦 鍮꾩쑉 (0-100, 湲곕낯占? 50)
+    startDate?: string;       // ?占쎌뒪???占쎌옉 ?占쎄컙
+    endDate?: string;         // ?占쎌뒪??醫낅즺 ?占쎄컙
   };
 
-  // --- 3. 폼 동적 제어 (formFields) ---
+  // --- 3. ???占쎌쟻 ?占쎌뼱 (formFields) ---
   formFields: {
     collectEmail: boolean;
     collectAddress: boolean;
     collectSchoolName: boolean;
     collectGrade: boolean;
-    gradeOptions?: string[];   // 추가: 학년 선택 옵션 목록
-    collectStudentId: boolean; // 학번
+    gradeOptions?: string[];   // 異뷂옙?: ?占쎈뀈 ?占쏀깮 ?占쎌뀡 紐⑸줉
+    collectStudentId: boolean; // ?占쎈쾲
   };
   
-  // --- 4. 알림톡 템플릿 (alimtalkSettings) ---
+  // --- 4. ?占쎈┝???占쏀뵆占?(alimtalkSettings) ---
   alimtalkSettings: {
-    // NHN Cloud API 인증 정보
+    // NHN Cloud API ?占쎌쬆 ?占쎈낫
     nhnAppKey?: string;      // NHN Cloud App Key
     nhnSecretKey?: string;   // NHN Cloud Secret Key
-    nhnSenderKey?: string;   // NHN Cloud Sender Key (발신번호)
+    nhnSenderKey?: string;   // NHN Cloud Sender Key (諛쒖떊踰덊샇)
 
-    // 알림톡 템플릿 코드
-    successTemplate: string;  // 확정 알림톡 템플릿 코드
-    waitlistTemplate: string; // 대기 알림톡 템플릿 코드
-    promoteTemplate?: string; // 홍보용 템플릿 코드 (선택)
-    confirmTemplateCode?: string; // 확정 템플릿 코드 (신규)
-    waitlistTemplateCode?: string; // 대기 템플릿 코드 (신규)
+    // ?占쎈┝???占쏀뵆占?肄붾뱶
+    successTemplate: string;  // ?占쎌젙 ?占쎈┝???占쏀뵆占?肄붾뱶
+    waitlistTemplate: string; // ?占쏙옙??占쎈┝???占쏀뵆占?肄붾뱶
+    promoteTemplate?: string; // ?占쎈낫???占쏀뵆占?肄붾뱶 (?占쏀깮)
+    confirmTemplateCode?: string; // ?占쎌젙 ?占쏀뵆占?肄붾뱶 (?占쎄퇋)
+    waitlistTemplateCode?: string; // ?占쏙옙??占쏀뵆占?肄붾뱶 (?占쎄퇋)
   };
   
-  // --- 5. 기타 설정 ---
+  // --- 5. 湲곤옙? ?占쎌젙 ---
   buttonSettings: {
-    showLookupButton: boolean; // 조회 버튼 노출 여부
-    showCancelButton: boolean; // 취소 버튼 노출 여부
+    showLookupButton: boolean; // 議고쉶 踰꾪듉 ?占쎌텧 ?占쏙옙?
+    showCancelButton: boolean; // 痍⑥냼 踰꾪듉 ?占쎌텧 ?占쏙옙?
   };
   
   serviceAccess?: {
@@ -105,7 +106,7 @@ export interface SchoolConfig {
     };
   };
   
-  isActive: boolean; // 학교 페이지 활성화 여부
+  isActive: boolean; // ?占쎄탳 ?占쎌씠吏 ?占쎌꽦???占쏙옙?
   createdAt: number;
   updatedAt: number;
 }
@@ -113,33 +114,25 @@ export interface SchoolConfig {
 export type RegistrationStatus = 'confirmed' | 'waitlisted' | 'canceled';
 
 /**
- * 신청 내역 (schools/{schoolId}/registrations 서브 컬렉션)
+ * ?占쎌껌 ?占쎌뿭 (schools/{schoolId}/registrations ?占쎈툕 而щ젆??
  */
 export interface Registration {
-  id: string; // 자동 생성 ID
+  id: string;
   schoolId: string;
-  
-  // 필수 수집 항목
   studentName: string;
-  phone: string; // 010-0000-0000 포맷
-  phoneLast4?: string; // 전화번호 뒤 4자리 (조회용)
-  
-  // 선택 수집 항목 (SchoolConfig.formFields에 따라 활성)
+  phone: string;
+  phoneLast4?: string;
   email?: string;
   address?: string;
   schoolName?: string;
   grade?: string;
   studentId?: string;
-  
-  // 상태 관리
   status: RegistrationStatus;
-  
-  // 약관 동의
   agreedSms?: boolean;
-  
-  // 메타 데이터
-  rank?: number; // 대기열 순번 (대기자일 경우)
-  submittedAt: number; // 신청 시간
+  rank?: number;
+  submittedAt: number;
   updatedAt: number;
-  ipAddress?: string; // 중복 방지 등을 위한 IP 기록
+  ipAddress?: string;
 }
+
+
