@@ -8,7 +8,7 @@ import { auth, db, functions } from '../firebase/config';
 import { useSchool } from '../contexts/SchoolContext';
 import { getQueueUserId } from '../lib/queue';
 import { createRequestId } from '../lib/requestId';
-import { getCurrentAdmissionRound, getAdmissionRoundTotal } from '../lib/admissionRounds';
+import { getCurrentAdmissionRound, getAdmissionRoundTotal, normalizeAdmissionRounds } from '../lib/admissionRounds';
 
 interface QueueState {
   currentNumber: number;
@@ -94,18 +94,21 @@ export default function SmartQueueGate() {
   const [showProgramImage, setShowProgramImage] = useState(false);
   const [queueStateFromCache, setQueueStateFromCache] = useState(false);
   const [entryFromCache, setEntryFromCache] = useState(false);
+  const [selectedRoundId, setSelectedRoundId] = useState<string>('round1');
 
   const autoStartedRef = useRef(false);
   const joinRequestIdRef = useRef<string | null>(null);
   const startRequestIdRef = useRef<string | null>(null);
 
   const queueEnabled = schoolConfig?.queueSettings?.enabled !== false;
+  const rounds = normalizeAdmissionRounds(schoolConfig);
   const currentRound = getCurrentAdmissionRound(schoolConfig, now);
+  const selectedRound = rounds.find((round) => round.id === selectedRoundId) || currentRound || rounds[0];
   const maxActiveSessions = schoolConfig?.queueSettings?.maxActiveSessions || queueState.maxActiveSessions || 60;
-  const regularCapacity = currentRound?.maxCapacity || schoolConfig?.maxCapacity || 0;
-  const waitlistCapacity = currentRound?.waitlistCapacity || schoolConfig?.waitlistCapacity || 0;
+  const regularCapacity = selectedRound?.maxCapacity || schoolConfig?.maxCapacity || 0;
+  const waitlistCapacity = selectedRound?.waitlistCapacity || schoolConfig?.waitlistCapacity || 0;
   const totalCapacity = regularCapacity + waitlistCapacity;
-  const openTimeMs = currentRound?.openDateTime ? new Date(currentRound.openDateTime).getTime() : 0;
+  const openTimeMs = selectedRound?.openDateTime ? new Date(selectedRound.openDateTime).getTime() : 0;
   const isOpen = !!openTimeMs && now >= openTimeMs;
   const openDateLabel = formatDateLabel(openTimeMs);
   const countdownLabel = formatCountdown(Math.max(0, openTimeMs - now));
@@ -116,6 +119,20 @@ export default function SmartQueueGate() {
   const programInfo =
     schoolConfig?.programInfo?.trim() ||
     '행사 개요, 준비물, 유의사항은 이 영역에서 함께 확인할 수 있습니다.';
+
+  useEffect(() => {
+    if (currentRound?.id) {
+      setSelectedRoundId((prev) => {
+        if (!prev || !rounds.some((round) => round.id === prev)) {
+          return currentRound.id;
+        }
+        if (!myEntry && prev === 'round1' && currentRound.id === 'round2') {
+          return currentRound.id;
+        }
+        return prev;
+      });
+    }
+  }, [currentRound?.id, myEntry, rounds]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -159,7 +176,7 @@ export default function SmartQueueGate() {
   useEffect(() => {
     if (!schoolId) return;
 
-    const queueStateDocId = currentRound?.id || 'round1';
+    const queueStateDocId = selectedRound?.id || 'round1';
     const unsubscribe = onSnapshot(
       doc(db, 'schools', schoolId, 'queueState', queueStateDocId),
       (snapshot) => {
@@ -185,7 +202,7 @@ export default function SmartQueueGate() {
     );
 
     return () => unsubscribe();
-  }, [schoolId, totalCapacity, currentRound?.id]);
+  }, [schoolId, totalCapacity, selectedRound?.id]);
 
   useEffect(() => {
     if (!schoolId || !userId) return;
@@ -197,7 +214,7 @@ export default function SmartQueueGate() {
         setEntryFromCache(snapshot.metadata.fromCache);
         setMyEntry(
           data
-            && (!currentRound?.id || data.roundId === currentRound.id)
+            && (!selectedRound?.id || data.roundId === selectedRound.id)
             ? {
                 roundId: data.roundId,
                 roundLabel: data.roundLabel ?? null,
@@ -214,7 +231,7 @@ export default function SmartQueueGate() {
     );
 
     return () => unsubscribe();
-  }, [schoolId, userId, currentRound?.id]);
+  }, [schoolId, userId, selectedRound?.id]);
 
   const myNumber = myEntry?.number ?? null;
   const canEnter = myEntry?.status === 'eligible' && myNumber !== null && myNumber <= queueState.currentNumber;
@@ -226,7 +243,7 @@ export default function SmartQueueGate() {
   const completedCount = queueState.confirmedCount + queueState.waitlistedCount;
   const waitingCount = Math.max(0, queueState.lastAssignedNumber - queueState.currentNumber);
   const remainingCapacity = Math.max(0, queueState.totalCapacity - completedCount);
-  const queueJoinLimit = Math.max(1, Math.ceil(getAdmissionRoundTotal(currentRound) * 1.5));
+  const queueJoinLimit = Math.max(1, Math.ceil(getAdmissionRoundTotal(selectedRound) * 1.5));
   const queueLimitReached = !myEntry && queueState.lastAssignedNumber >= queueJoinLimit;
   const dataConfidenceLabel = queueStateFromCache || entryFromCache ? '캐시 기준' : '실시간 반영';
   const joinDisabledReason =
@@ -359,7 +376,7 @@ export default function SmartQueueGate() {
 
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         try {
-          result = await joinQueueFn({ schoolId, requestId });
+          result = await joinQueueFn({ schoolId, roundId: selectedRound?.id, requestId });
           lastError = null;
           break;
         } catch (error: any) {
@@ -405,7 +422,7 @@ export default function SmartQueueGate() {
     try {
       await ensureQueueUserId();
       const startFn = httpsCallable(functions, 'startRegistrationSession');
-      const result: any = await startFn({ schoolId, requestId: startRequestIdRef.current });
+      const result: any = await startFn({ schoolId, roundId: myEntry?.roundId || selectedRound?.id, requestId: startRequestIdRef.current });
 
       if (!result.data?.success) {
         throw new Error('?깅줉 ?몄뀡 ?앹꽦???ㅽ뙣?덉뒿?덈떎.');
@@ -505,9 +522,34 @@ export default function SmartQueueGate() {
                   {heroMessage}
                 </p>
                 <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                  {rounds.map((round) => {
+                    const roundOpenTime = round.openDateTime ? new Date(round.openDateTime).getTime() : 0;
+                    const roundIsOpen = !!roundOpenTime && now >= roundOpenTime;
+                    const isSelected = selectedRound?.id === round.id;
+                    return (
+                      <button
+                        key={round.id}
+                        type="button"
+                        onClick={() => setSelectedRoundId(round.id)}
+                        className={`rounded-2xl border px-4 py-4 text-left transition ${
+                          isSelected
+                            ? 'border-white bg-white text-snu-blue shadow-lg'
+                            : 'border-white/15 bg-white/10 text-white hover:bg-white/15'
+                        }`}
+                      >
+                        <p className={`text-xs font-semibold uppercase tracking-[0.2em] ${isSelected ? 'text-snu-blue/70' : 'text-white/60'}`}>{round.label}</p>
+                        <p className="mt-2 text-base font-bold">{formatDateLabel(roundOpenTime)}</p>
+                        <p className={`mt-2 text-xs ${isSelected ? 'text-snu-blue/70' : 'text-white/75'}`}>
+                          {roundIsOpen ? '현재 버튼이 열려 있습니다' : `오픈까지 ${formatCountdown(Math.max(0, roundOpenTime - now))}`}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-6 grid gap-3 sm:grid-cols-2">
                   <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">오픈 시간</p>
-                    <p className="mt-2 text-xs font-semibold uppercase tracking-[0.2em] text-white/70">{currentRound?.label || '1차'}</p>
+                    <p className="mt-2 text-xs font-semibold uppercase tracking-[0.2em] text-white/70">{selectedRound?.label || '1차'}</p>
                     <p className="mt-1 text-lg font-bold">{openDateLabel}</p>
                     <p className="mt-2 text-xs text-white/75">{isOpen ? '현재 접수 진행 중' : `오픈까지 ${countdownLabel}`}</p>
                   </div>
@@ -523,7 +565,7 @@ export default function SmartQueueGate() {
               <div className="rounded-3xl border border-white/15 bg-white/10 p-6 backdrop-blur-sm">
                 <p className="text-sm font-semibold text-white/75">현재 진행 상황</p>
                 <p className="mt-3 text-3xl font-bold">
-                  {remainingCapacity <= 0 || queueLimitReached ? '대기열 마감' : isOpen ? '순차 입장 진행 중' : '오픈 대기 중'}
+                  {remainingCapacity <= 0 || queueLimitReached ? `${selectedRound?.label || '해당 차수'} 마감` : isOpen ? `${selectedRound?.label || '해당 차수'} 순차 입장 진행 중` : `${selectedRound?.label || '해당 차수'} 오픈 대기 중`}
                 </p>
                 <p className="mt-3 text-sm leading-relaxed text-white/85">
                   {remainingCapacity <= 0
@@ -592,10 +634,10 @@ export default function SmartQueueGate() {
                   className="flex w-full items-center justify-center rounded-2xl bg-snu-blue px-6 py-4 text-base font-bold text-white transition hover:bg-snu-dark disabled:cursor-not-allowed disabled:bg-gray-300"
                 >
                   {joining
-                    ? '대기번호 발급 중...'
+                    ? `${selectedRound?.label || ''} 대기번호 발급 중...`
                     : myEntry?.status === 'expired'
-                        ? '대기열 다시 입장하기'
-                        : '대기열 입장하기'}
+                        ? `${selectedRound?.label || ''} 대기열 다시 입장하기`
+                        : `${selectedRound?.label || ''} 대기열 입장하기`}
                   {!joining && <ArrowRight className="ml-2 h-5 w-5" />}
                 </button>
               ) : canEnter ? (

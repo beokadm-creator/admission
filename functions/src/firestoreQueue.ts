@@ -859,7 +859,7 @@ export const joinQueue = functionsV1.https.onCall(async (request: any, legacyCon
     throw new functions.https.HttpsError('unauthenticated', '濡쒓렇?몄씠 ?꾩슂?⑸땲??');
   }
 
-  const { schoolId } = data?.data || data;
+  const { schoolId, roundId } = data?.data || data;
   const requestId = sanitizeRequestId((data?.data || data)?.requestId);
   if (!schoolId) {
     throw new functions.https.HttpsError('invalid-argument', 'schoolId媛 ?꾩슂?⑸땲??');
@@ -899,7 +899,7 @@ export const joinQueue = functionsV1.https.onCall(async (request: any, legacyCon
   }
 
   const schoolData = schoolSnapshot.data()!;
-  const round = getResolvedAdmissionRound(schoolData);
+  const round = roundId ? (getRoundById(schoolData, roundId) || getResolvedAdmissionRound(schoolData)) : getResolvedAdmissionRound(schoolData);
   const stateRef = queueStateRef(db, schoolId, round.id);
   const lockRef = requestLockRef(db, schoolId, `${round.id}_${requestId}`);
   const stateSnapshot = await stateRef.get();
@@ -1065,7 +1065,7 @@ export const startRegistrationSession = functionsV1.https.onCall(async (request:
     throw new functions.https.HttpsError('unauthenticated', '濡쒓렇?몄씠 ?꾩슂?⑸땲??');
   }
 
-  const { schoolId } = data?.data || data;
+  const { schoolId, roundId } = data?.data || data;
   const requestId = sanitizeRequestId((data?.data || data)?.requestId);
   if (!schoolId) {
     throw new functions.https.HttpsError('invalid-argument', 'schoolId媛 ?꾩슂?⑸땲??');
@@ -1102,10 +1102,10 @@ export const startRegistrationSession = functionsV1.https.onCall(async (request:
     }
 
     const schoolData = schoolSnapshot.data()!;
-    const round = getResolvedAdmissionRound(schoolData);
-    const stateRef = queueStateRef(db, schoolId, round.id);
-    const lockRef = requestLockRef(db, schoolId, `${round.id}_${requestId}`);
-    const [stateSnapshot, lockSnapshot] = await Promise.all([
+    let round = roundId ? (getRoundById(schoolData, roundId) || getResolvedAdmissionRound(schoolData)) : getResolvedAdmissionRound(schoolData);
+    let stateRef = queueStateRef(db, schoolId, round.id);
+    let lockRef = requestLockRef(db, schoolId, `${round.id}_${requestId}`);
+    let [stateSnapshot, lockSnapshot] = await Promise.all([
       transaction.get(stateRef),
       transaction.get(lockRef)
     ]);
@@ -1132,7 +1132,7 @@ export const startRegistrationSession = functionsV1.https.onCall(async (request:
       return result;
     }
 
-    const queueState = buildQueueStateDoc(schoolData, round, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
+    let queueState = buildQueueStateDoc(schoolData, round, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
     if (queueState.availableCapacity <= 0) {
       throw new functions.https.HttpsError('resource-exhausted', '?꾩옱 ?댁슜 媛?ν븳 ?좎껌 ?몄썝???놁뒿?덈떎.');
     }
@@ -1150,7 +1150,17 @@ export const startRegistrationSession = functionsV1.https.onCall(async (request:
 
       const queueEntry = entrySnapshot.data() as QueueEntryDoc;
       if (queueEntry.roundId !== round.id) {
-        throw new functions.https.HttpsError('failed-precondition', '현재 접수 차수에 다시 대기열 입장이 필요합니다.');
+        round = getRoundById(schoolData, queueEntry.roundId) || round;
+        stateRef = queueStateRef(db, schoolId, round.id);
+        lockRef = requestLockRef(db, schoolId, `${round.id}_${requestId}`);
+        [stateSnapshot, lockSnapshot] = await Promise.all([
+          transaction.get(stateRef),
+          transaction.get(lockRef)
+        ]);
+        if (lockSnapshot.exists) {
+          return (lockSnapshot.data() as RequestLockDoc).result;
+        }
+        queueState = buildQueueStateDoc(schoolData, round, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
       }
       queueNumber = queueEntry.number;
       if (queueEntry.status !== 'eligible' || queueEntry.number == null) {

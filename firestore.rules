@@ -28,6 +28,8 @@ service cloud.firestore {
     function isQueueStateAdminUpdate(schoolId) {
       return isAdminOfSchool(schoolId) &&
         request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'roundId',
+          'roundLabel',
           'totalCapacity',
           'availableCapacity',
           'queueEnabled',
@@ -39,6 +41,8 @@ service cloud.firestore {
     function isQueueStateAdminCreate(schoolId) {
       return isAdminOfSchool(schoolId) &&
         request.resource.data.keys().hasOnly([
+          'roundId',
+          'roundLabel',
           'totalCapacity',
           'availableCapacity',
           'queueEnabled',
