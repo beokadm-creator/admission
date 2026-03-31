@@ -774,7 +774,7 @@ async function expireReservationDocument(
   return result;
 }
 
-export const joinQueue = functionsV1.runWith({ enforceAppCheck: true }).https.onCall(async (request: any, legacyContext?: any) => {
+export const joinQueue = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
   const db = admin.firestore();
   const { data, auth, rawRequest } = normalizeCallableRequest(request, legacyContext);
   if (!auth) {
@@ -974,7 +974,7 @@ export const joinQueue = functionsV1.runWith({ enforceAppCheck: true }).https.on
   }
 });
 
-export const startRegistrationSession = functionsV1.runWith({ enforceAppCheck: true }).https.onCall(async (request: any, legacyContext?: any) => {
+export const startRegistrationSession = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
   const db = admin.firestore();
   const { data, auth, rawRequest } = normalizeCallableRequest(request, legacyContext);
   if (!auth) {
@@ -1127,7 +1127,7 @@ export const startRegistrationSession = functionsV1.runWith({ enforceAppCheck: t
   });
 });
 
-export const getReservationSession = functionsV1.runWith({ enforceAppCheck: true }).https.onCall(async (request: any, legacyContext?: any) => {
+export const getReservationSession = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
   const db = admin.firestore();
   const { data, auth } = normalizeCallableRequest(request, legacyContext);
   if (!auth) {
@@ -1176,7 +1176,7 @@ export const getReservationSession = functionsV1.runWith({ enforceAppCheck: true
   };
 });
 
-export const forceExpireSession = functionsV1.runWith({ enforceAppCheck: true }).https.onCall(async (request: any, legacyContext?: any) => {
+export const forceExpireSession = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
   const db = admin.firestore();
   const { data, auth } = normalizeCallableRequest(request, legacyContext);
   if (!auth) {
@@ -1199,7 +1199,7 @@ export const forceExpireSession = functionsV1.runWith({ enforceAppCheck: true })
   return { success: true, ...result };
 });
 
-export const heartbeatQueuePresence = functionsV1.runWith({ enforceAppCheck: true }).https.onCall(async (request: any, legacyContext?: any) => {
+export const heartbeatQueuePresence = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
   const db = admin.firestore();
   const { data, auth } = normalizeCallableRequest(request, legacyContext);
   if (!auth) {
@@ -1282,7 +1282,7 @@ function sanitizeFormData(formData: any) {
   return sanitized;
 }
 
-export const confirmReservation = functionsV1.runWith({ enforceAppCheck: true }).https.onCall(async (request: any, legacyContext?: any) => {
+export const confirmReservation = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
   const db = admin.firestore();
   const { data, auth, rawRequest } = normalizeCallableRequest(request, legacyContext);
   if (!auth) {
