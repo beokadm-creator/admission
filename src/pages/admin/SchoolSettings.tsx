@@ -22,6 +22,7 @@ import { db, functions } from '../../firebase/config';
 import RegistrationList from '../../components/RegistrationList';
 import { useAuth } from '../../contexts/AuthContext';
 import { SchoolConfig } from '../../types/models';
+import { normalizeAdmissionRounds } from '../../lib/admissionRounds';
 
 interface SlotStats {
   total: number;
@@ -221,6 +222,24 @@ export default function SchoolSettings() {
       maxCapacity: 950,
       waitlistCapacity: 50,
       openDateTime: '',
+      admissionRounds: [
+        {
+          id: 'round1',
+          label: '1차',
+          openDateTime: '',
+          maxCapacity: 950,
+          waitlistCapacity: 50,
+          enabled: true
+        },
+        {
+          id: 'round2',
+          label: '2차',
+          openDateTime: '',
+          maxCapacity: 0,
+          waitlistCapacity: 0,
+          enabled: false
+        }
+      ],
       eventDate: '',
       heroMessage: '',
       programInfo: '',
@@ -266,15 +285,21 @@ export default function SchoolSettings() {
     }
   });
 
-  const watchedRegularCapacity = watch('maxCapacity') || 0;
-  const watchedWaitlistCapacity = watch('waitlistCapacity') || 0;
+  const watchedRound1RegularCapacity = watch('admissionRounds.0.maxCapacity') || 0;
+  const watchedRound1WaitlistCapacity = watch('admissionRounds.0.waitlistCapacity') || 0;
+  const watchedRound2Enabled = watch('admissionRounds.1.enabled') === true;
+  const watchedRound2RegularCapacity = watch('admissionRounds.1.maxCapacity') || 0;
+  const watchedRound2WaitlistCapacity = watch('admissionRounds.1.waitlistCapacity') || 0;
   const watchedMaxActiveSessions = watch('queueSettings.maxActiveSessions') || 60;
   const watchedNhnAppKey = watch('alimtalkSettings.nhnAppKey') || '';
   const watchedNhnSecretKey = watch('alimtalkSettings.nhnSecretKey') || '';
   const watchedSuccessTemplate = watch('alimtalkSettings.successTemplate') || '';
   const watchedWaitlistTemplate = watch('alimtalkSettings.waitlistTemplate') || '';
   const watchedPromoteTemplate = watch('alimtalkSettings.promoteTemplate') || '';
-  const totalManagedCapacity = watchedRegularCapacity + watchedWaitlistCapacity;
+  const totalManagedCapacity =
+    watchedRound1RegularCapacity +
+    watchedRound1WaitlistCapacity +
+    (watchedRound2Enabled ? watchedRound2RegularCapacity + watchedRound2WaitlistCapacity : 0);
   const selectedSuccessTemplate = useMemo(
     () => templateOptions.find((item) => item.templateCode === watchedSuccessTemplate),
     [templateOptions, watchedSuccessTemplate]
@@ -313,9 +338,22 @@ export default function SchoolSettings() {
         setValue('id', schoolId);
         setValue('name', data.name || '');
         setValue('logoUrl', data.logoUrl || '');
-        setValue('maxCapacity', data.maxCapacity || 0);
-        setValue('waitlistCapacity', data.waitlistCapacity || 0);
-        setValue('openDateTime', toLocalDateTimeValue(data.openDateTime));
+        const rounds = normalizeAdmissionRounds(data);
+        setValue('maxCapacity', rounds[0]?.maxCapacity || data.maxCapacity || 0);
+        setValue('waitlistCapacity', rounds[0]?.waitlistCapacity || data.waitlistCapacity || 0);
+        setValue('openDateTime', toLocalDateTimeValue(rounds[0]?.openDateTime || data.openDateTime));
+        setValue('admissionRounds.0.id', rounds[0]?.id || 'round1');
+        setValue('admissionRounds.0.label', rounds[0]?.label || '1차');
+        setValue('admissionRounds.0.openDateTime', toLocalDateTimeValue(rounds[0]?.openDateTime));
+        setValue('admissionRounds.0.maxCapacity', rounds[0]?.maxCapacity || 0);
+        setValue('admissionRounds.0.waitlistCapacity', rounds[0]?.waitlistCapacity || 0);
+        setValue('admissionRounds.0.enabled', true);
+        setValue('admissionRounds.1.id', rounds[1]?.id || 'round2');
+        setValue('admissionRounds.1.label', rounds[1]?.label || '2차');
+        setValue('admissionRounds.1.openDateTime', toLocalDateTimeValue(rounds[1]?.openDateTime));
+        setValue('admissionRounds.1.maxCapacity', rounds[1]?.maxCapacity || 0);
+        setValue('admissionRounds.1.waitlistCapacity', rounds[1]?.waitlistCapacity || 0);
+        setValue('admissionRounds.1.enabled', rounds[1]?.enabled === true);
         setValue('eventDate', data.eventDate ? data.eventDate.slice(0, 10) : '');
         setValue('heroMessage', heroMessage);
         setValue('programInfo', data.programInfo || '');
@@ -376,10 +414,10 @@ export default function SchoolSettings() {
         if (snapshot.exists()) {
           const data = snapshot.data();
           setSlotStats({
-            total: data.totalCapacity || watchedRegularCapacity + watchedWaitlistCapacity,
+            total: data.totalCapacity || watchedRound1RegularCapacity + watchedRound1WaitlistCapacity,
             reserved: data.activeReservationCount || 0,
             confirmed: (data.confirmedCount || 0) + (data.waitlistedCount || 0),
-            available: data.availableCapacity ?? watchedRegularCapacity + watchedWaitlistCapacity,
+            available: data.availableCapacity ?? watchedRound1RegularCapacity + watchedRound1WaitlistCapacity,
             lastUpdated: data.updatedAt || Date.now(),
             currentNumber: data.currentNumber || 0,
             lastAssignedNumber: data.lastAssignedNumber || 0,
@@ -392,16 +430,16 @@ export default function SchoolSettings() {
           return;
         }
 
-        setSlotStats(emptySlotStats(watchedRegularCapacity + watchedWaitlistCapacity));
+        setSlotStats(emptySlotStats(watchedRound1RegularCapacity + watchedRound1WaitlistCapacity));
       },
       (error) => {
         console.error('Error fetching slot stats:', error);
-        setSlotStats(emptySlotStats(watchedRegularCapacity + watchedWaitlistCapacity));
+        setSlotStats(emptySlotStats(watchedRound1RegularCapacity + watchedRound1WaitlistCapacity));
       }
     );
 
     return unsubscribe;
-  }, [schoolId, watchedRegularCapacity, watchedWaitlistCapacity]);
+  }, [schoolId, watchedRound1RegularCapacity, watchedRound1WaitlistCapacity]);
 
   useEffect(() => {
     if (activeTab === 'reservations' && schoolId) {
@@ -514,7 +552,15 @@ export default function SchoolSettings() {
       const heroCopy = data.heroMessage?.trim() || '';
       const programCopy = data.programInfo?.trim() || '';
       const maxActiveSessions = Math.max(1, data.queueSettings?.maxActiveSessions || 60);
-      const total = (data.maxCapacity || 0) + (data.waitlistCapacity || 0);
+      const admissionRounds = normalizeAdmissionRounds({
+        ...data,
+        admissionRounds: (data.admissionRounds || []).map((round) => ({
+          ...round,
+          openDateTime: toIsoDateTime(round.openDateTime)
+        }))
+      });
+      const firstRound = admissionRounds[0];
+      const firstRoundTotal = (firstRound?.maxCapacity || 0) + (firstRound?.waitlistCapacity || 0);
       const successTemplate =
         data.alimtalkSettings?.successTemplate?.trim() || data.alimtalkSettings?.confirmTemplateCode?.trim() || '';
       const waitlistTemplate =
@@ -523,7 +569,10 @@ export default function SchoolSettings() {
       const sanitizedDoc = {
         ...data,
         id: schoolId,
-        openDateTime: toIsoDateTime(data.openDateTime),
+        maxCapacity: firstRound?.maxCapacity || 0,
+        waitlistCapacity: firstRound?.waitlistCapacity || 0,
+        openDateTime: firstRound?.openDateTime || '',
+        admissionRounds,
         eventDate: data.eventDate || '',
         heroMessage: heroCopy,
         parkingMessage: heroCopy,
@@ -581,10 +630,25 @@ export default function SchoolSettings() {
         { merge: true }
       );
       await setDoc(
-        doc(db, 'schools', schoolId, 'queueState', 'current'),
+        doc(db, 'schools', schoolId, 'queueState', 'round1'),
         {
-          totalCapacity: total,
-          availableCapacity: Math.max(0, total - ((slotStats?.confirmed || 0) + (slotStats?.reserved || 0))),
+          roundId: 'round1',
+          roundLabel: '1차',
+          totalCapacity: firstRoundTotal,
+          availableCapacity: Math.max(0, firstRoundTotal - ((slotStats?.confirmed || 0) + (slotStats?.reserved || 0))),
+          queueEnabled: sanitizedDoc.queueSettings.enabled,
+          maxActiveSessions: sanitizedDoc.queueSettings.maxActiveSessions,
+          updatedAt: Date.now()
+        },
+        { merge: true }
+      );
+      await setDoc(
+        doc(db, 'schools', schoolId, 'queueState', 'round2'),
+        {
+          roundId: 'round2',
+          roundLabel: '2차',
+          totalCapacity: (admissionRounds[1]?.maxCapacity || 0) + (admissionRounds[1]?.waitlistCapacity || 0),
+          availableCapacity: (admissionRounds[1]?.maxCapacity || 0) + (admissionRounds[1]?.waitlistCapacity || 0),
           queueEnabled: sanitizedDoc.queueSettings.enabled,
           maxActiveSessions: sanitizedDoc.queueSettings.maxActiveSessions,
           updatedAt: Date.now()
@@ -731,8 +795,8 @@ export default function SchoolSettings() {
             <div className="rounded-2xl bg-white p-6 shadow-sm">
               <h2 className="mb-4 text-lg font-semibold text-gray-900">현재 운영 설정 요약</h2>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <SummaryCard title="정규 신청 인원" value={`${watchedRegularCapacity.toLocaleString()}명`} />
-                <SummaryCard title="예비 접수 인원" value={`${watchedWaitlistCapacity.toLocaleString()}명`} />
+                <SummaryCard title="1차 모집" value={`${(watchedRound1RegularCapacity + watchedRound1WaitlistCapacity).toLocaleString()}명`} />
+                <SummaryCard title="2차 모집" value={`${(watchedRound2Enabled ? watchedRound2RegularCapacity + watchedRound2WaitlistCapacity : 0).toLocaleString()}명`} />
                 <SummaryCard title="순차 입장 방식" value="빈자리 발생 시 다음 순번 즉시 입장" />
                 <SummaryCard title="총 관리 인원" value={`${totalManagedCapacity.toLocaleString()}명`} />
               </div>
@@ -757,8 +821,11 @@ export default function SchoolSettings() {
                   <Field label="로고 이미지 URL">
                     <input {...register('logoUrl')} type="url" className={inputClassName} />
                   </Field>
-                  <Field label="오픈 일시">
-                    <input {...register('openDateTime', { required: true })} type="datetime-local" className={inputClassName} />
+                  <Field label="1차 오픈 일시 (KST)">
+                    <input {...register('admissionRounds.0.openDateTime', { required: true })} type="datetime-local" className={inputClassName} />
+                  </Field>
+                  <Field label="2차 오픈 일시 (KST)">
+                    <input {...register('admissionRounds.1.openDateTime')} type="datetime-local" className={inputClassName} />
                   </Field>
                   <Field label="행사 일자">
                     <input {...register('eventDate')} type="date" className={inputClassName} />
@@ -787,18 +854,34 @@ export default function SchoolSettings() {
 
               <section className="border-b pb-6">
                 <h3 className="mb-4 text-base font-semibold text-gray-900">모집 및 대기열 설정</h3>
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                  <Field label="정규 신청 인원">
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                  <Field label="1차 정규 인원">
                     <input
-                      {...register('maxCapacity', { required: true, valueAsNumber: true })}
+                      {...register('admissionRounds.0.maxCapacity', { required: true, valueAsNumber: true })}
                       type="number"
                       min={0}
                       className={inputClassName}
                     />
                   </Field>
-                  <Field label="예비 접수 인원">
+                  <Field label="1차 예비 인원">
                     <input
-                      {...register('waitlistCapacity', { required: true, valueAsNumber: true })}
+                      {...register('admissionRounds.0.waitlistCapacity', { required: true, valueAsNumber: true })}
+                      type="number"
+                      min={0}
+                      className={inputClassName}
+                    />
+                  </Field>
+                  <Field label="2차 정규 인원">
+                    <input
+                      {...register('admissionRounds.1.maxCapacity', { valueAsNumber: true })}
+                      type="number"
+                      min={0}
+                      className={inputClassName}
+                    />
+                  </Field>
+                  <Field label="2차 예비 인원">
+                    <input
+                      {...register('admissionRounds.1.waitlistCapacity', { valueAsNumber: true })}
                       type="number"
                       min={0}
                       className={inputClassName}
@@ -818,6 +901,14 @@ export default function SchoolSettings() {
                 </div>
 
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <label className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                    <input
+                      {...register('admissionRounds.1.enabled')}
+                      type="checkbox"
+                      className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm font-medium text-gray-700">2차 모집 사용</span>
+                  </label>
                   <label className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
                     <input
                       {...register('queueSettings.enabled')}
@@ -840,6 +931,8 @@ export default function SchoolSettings() {
                   <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
                     <p className="font-semibold text-gray-900">현재 운영 기준</p>
                     <p className="mt-2">동시 작성 인원: {watchedMaxActiveSessions.toLocaleString()}명</p>
+                    <p className="mt-1">1차 모집: {(watchedRound1RegularCapacity + watchedRound1WaitlistCapacity).toLocaleString()}명</p>
+                    <p className="mt-1">2차 모집: {(watchedRound2Enabled ? watchedRound2RegularCapacity + watchedRound2WaitlistCapacity : 0).toLocaleString()}명</p>
                     <p className="mt-1">순차 입장: 자리가 생기면 다음 순번이 즉시 입장</p>
                     <p className="mt-1">오픈 시간에는 모든 사용자에게 버튼이 동시에 열리고, 클릭 순서대로 번호가 부여됩니다.</p>
                   </div>

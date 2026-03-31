@@ -42,6 +42,15 @@ interface AlimTalkCredentials {
   senderKey?: string;
 }
 
+interface AdmissionRoundConfig {
+  id: string;
+  label: string;
+  openDateTime: string;
+  maxCapacity: number;
+  waitlistCapacity: number;
+  enabled: boolean;
+}
+
 interface NormalizedCallableRequest {
   data: any;
   auth: any;
@@ -91,6 +100,31 @@ function getRateLimitIdentifier(rawRequest: any, fallback: string) {
   }
 
   return fallback;
+}
+
+function normalizeAdmissionRounds(schoolData: any): AdmissionRoundConfig[] {
+  if (Array.isArray(schoolData?.admissionRounds) && schoolData.admissionRounds.length > 0) {
+    return schoolData.admissionRounds;
+  }
+
+  return [
+    {
+      id: 'round1',
+      label: '1차',
+      openDateTime: schoolData?.openDateTime || '',
+      maxCapacity: Number(schoolData?.maxCapacity || 0),
+      waitlistCapacity: Number(schoolData?.waitlistCapacity || 0),
+      enabled: true
+    }
+  ];
+}
+
+function getRoundCapacity(schoolData: any, roundId?: string | null) {
+  const round = normalizeAdmissionRounds(schoolData).find((item) => item.id === roundId) || normalizeAdmissionRounds(schoolData)[0];
+  return {
+    roundId: round.id,
+    totalCapacity: Number(round.maxCapacity || 0) + Number(round.waitlistCapacity || 0)
+  };
 }
 
 async function checkRateLimit(
@@ -234,7 +268,8 @@ export const onRegistrationDelete = firestoreTriggers
     }
 
     const schoolRef = admin.firestore().doc(`schools/${schoolId}`);
-    const queueStateRef = admin.firestore().doc(`schools/${schoolId}/queueState/current`);
+    const roundMeta = getRoundCapacity((deletedData || {}) as any, deletedData?.admissionRoundId);
+    const queueStateRef = admin.firestore().doc(`schools/${schoolId}/queueState/${roundMeta.roundId}`);
 
     await admin.firestore().runTransaction(async (transaction) => {
       const [schoolDoc, queueStateDoc] = await Promise.all([
@@ -249,7 +284,7 @@ export const onRegistrationDelete = firestoreTriggers
       const schoolData = schoolDoc.data()!;
       const confirmedCount = Math.max(0, Number(schoolData.stats?.confirmedCount || 0) - (status === 'confirmed' ? 1 : 0));
       const waitlistedCount = Math.max(0, Number(schoolData.stats?.waitlistedCount || 0) - (status === 'waitlisted' ? 1 : 0));
-      const totalCapacity = Number(queueStateDoc.data()?.totalCapacity || (schoolData.maxCapacity || 0) + (schoolData.waitlistCapacity || 0));
+      const totalCapacity = Number(queueStateDoc.data()?.totalCapacity || roundMeta.totalCapacity);
       const activeReservationCount = Number(queueStateDoc.data()?.activeReservationCount || 0);
       const updatedAt = Date.now();
 
@@ -378,13 +413,11 @@ export const cancelRegistration = functionsV1.https.onCall(async (request: any, 
 
   const regRef = admin.firestore().doc(`schools/${schoolId}/registrations/${registrationId}`);
   const schoolRef = admin.firestore().doc(`schools/${schoolId}`);
-  const queueStateRef = admin.firestore().doc(`schools/${schoolId}/queueState/current`);
 
   await admin.firestore().runTransaction(async (transaction) => {
-    const [regDoc, schoolDoc, queueStateDoc] = await Promise.all([
+    const [regDoc, schoolDoc] = await Promise.all([
       transaction.get(regRef),
-      transaction.get(schoolRef),
-      transaction.get(queueStateRef)
+      transaction.get(schoolRef)
     ]);
 
     if (!regDoc.exists) {
@@ -397,11 +430,14 @@ export const cancelRegistration = functionsV1.https.onCall(async (request: any, 
 
     const reg = regDoc.data()!;
     const schoolData = schoolDoc.data()!;
+    const roundMeta = getRoundCapacity(schoolData, reg.admissionRoundId);
+    const queueStateRef = admin.firestore().doc(`schools/${schoolId}/queueState/${roundMeta.roundId}`);
+    const queueStateDoc = await transaction.get(queueStateRef);
     const queueState = queueStateDoc.exists ? queueStateDoc.data() || {} : {};
     const currentConfirmed = Number(schoolData.stats?.confirmedCount || 0);
     const currentWaitlisted = Number(schoolData.stats?.waitlistedCount || 0);
     const activeReservationCount = Number(queueState.activeReservationCount || 0);
-    const totalCapacity = Number(queueState.totalCapacity || ((schoolData.maxCapacity || 0) + (schoolData.waitlistCapacity || 0)));
+    const totalCapacity = Number(queueState.totalCapacity || roundMeta.totalCapacity);
 
     if (reg.studentName !== studentName.trim() || reg.phoneLast4 !== phoneLast4) {
       throw new functions.https.HttpsError('permission-denied', '���� Ȯ�ο� �����߽��ϴ�.');
@@ -455,7 +491,7 @@ export const syncSchoolSlots = functionsV1.https.onCall(async (request: any, leg
 
   await assertAdminAccessToSchool(auth.uid, schoolId);
 
-  const queueStateRef = admin.firestore().doc(`schools/${schoolId}/queueState/current`);
+  const queueStateRef = admin.firestore().doc(`schools/${schoolId}/queueState/round1`);
   await admin.firestore().runTransaction(async (transaction) => {
     const snapshot = await transaction.get(queueStateRef);
     const current = snapshot.exists ? snapshot.data() || {} : {};

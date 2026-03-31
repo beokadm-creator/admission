@@ -8,6 +8,7 @@ import { auth, db, functions } from '../firebase/config';
 import { useSchool } from '../contexts/SchoolContext';
 import { getQueueUserId } from '../lib/queue';
 import { createRequestId } from '../lib/requestId';
+import { getCurrentAdmissionRound, getAdmissionRoundTotal } from '../lib/admissionRounds';
 
 interface QueueState {
   currentNumber: number;
@@ -22,6 +23,8 @@ interface QueueState {
 }
 
 interface QueueEntry {
+  roundId?: string;
+  roundLabel?: string;
   number: number | null;
   status: 'waiting' | 'eligible' | 'consumed' | 'expired';
   activeReservationId?: string | null;
@@ -97,11 +100,12 @@ export default function SmartQueueGate() {
   const startRequestIdRef = useRef<string | null>(null);
 
   const queueEnabled = schoolConfig?.queueSettings?.enabled !== false;
+  const currentRound = getCurrentAdmissionRound(schoolConfig, now);
   const maxActiveSessions = schoolConfig?.queueSettings?.maxActiveSessions || queueState.maxActiveSessions || 60;
-  const regularCapacity = schoolConfig?.maxCapacity || 0;
-  const waitlistCapacity = schoolConfig?.waitlistCapacity || 0;
+  const regularCapacity = currentRound?.maxCapacity || schoolConfig?.maxCapacity || 0;
+  const waitlistCapacity = currentRound?.waitlistCapacity || schoolConfig?.waitlistCapacity || 0;
   const totalCapacity = regularCapacity + waitlistCapacity;
-  const openTimeMs = schoolConfig?.openDateTime ? new Date(schoolConfig.openDateTime).getTime() : 0;
+  const openTimeMs = currentRound?.openDateTime ? new Date(currentRound.openDateTime).getTime() : 0;
   const isOpen = !!openTimeMs && now >= openTimeMs;
   const openDateLabel = formatDateLabel(openTimeMs);
   const countdownLabel = formatCountdown(Math.max(0, openTimeMs - now));
@@ -155,8 +159,9 @@ export default function SmartQueueGate() {
   useEffect(() => {
     if (!schoolId) return;
 
+    const queueStateDocId = currentRound?.id || 'round1';
     const unsubscribe = onSnapshot(
-      doc(db, 'schools', schoolId, 'queueState', 'current'),
+      doc(db, 'schools', schoolId, 'queueState', queueStateDocId),
       (snapshot) => {
         const data = snapshot.data();
         setQueueStateFromCache(snapshot.metadata.fromCache);
@@ -180,7 +185,7 @@ export default function SmartQueueGate() {
     );
 
     return () => unsubscribe();
-  }, [schoolId, totalCapacity]);
+  }, [schoolId, totalCapacity, currentRound?.id]);
 
   useEffect(() => {
     if (!schoolId || !userId) return;
@@ -192,7 +197,10 @@ export default function SmartQueueGate() {
         setEntryFromCache(snapshot.metadata.fromCache);
         setMyEntry(
           data
+            && (!currentRound?.id || data.roundId === currentRound.id)
             ? {
+                roundId: data.roundId,
+                roundLabel: data.roundLabel ?? null,
                 number: data.number ?? null,
                 status: data.status,
                 activeReservationId: data.activeReservationId ?? null
@@ -206,7 +214,7 @@ export default function SmartQueueGate() {
     );
 
     return () => unsubscribe();
-  }, [schoolId, userId]);
+  }, [schoolId, userId, currentRound?.id]);
 
   const myNumber = myEntry?.number ?? null;
   const canEnter = myEntry?.status === 'eligible' && myNumber !== null && myNumber <= queueState.currentNumber;
@@ -218,7 +226,7 @@ export default function SmartQueueGate() {
   const completedCount = queueState.confirmedCount + queueState.waitlistedCount;
   const waitingCount = Math.max(0, queueState.lastAssignedNumber - queueState.currentNumber);
   const remainingCapacity = Math.max(0, queueState.totalCapacity - completedCount);
-  const queueJoinLimit = Math.max(1, Math.ceil(totalCapacity * 1.5));
+  const queueJoinLimit = Math.max(1, Math.ceil(getAdmissionRoundTotal(currentRound) * 1.5));
   const queueLimitReached = !myEntry && queueState.lastAssignedNumber >= queueJoinLimit;
   const dataConfidenceLabel = queueStateFromCache || entryFromCache ? '캐시 기준' : '실시간 반영';
   const joinDisabledReason =
@@ -499,7 +507,8 @@ export default function SmartQueueGate() {
                 <div className="mt-6 grid gap-3 sm:grid-cols-2">
                   <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">오픈 시간</p>
-                    <p className="mt-2 text-lg font-bold">{openDateLabel}</p>
+                    <p className="mt-2 text-xs font-semibold uppercase tracking-[0.2em] text-white/70">{currentRound?.label || '1차'}</p>
+                    <p className="mt-1 text-lg font-bold">{openDateLabel}</p>
                     <p className="mt-2 text-xs text-white/75">{isOpen ? '현재 접수 진행 중' : `오픈까지 ${countdownLabel}`}</p>
                   </div>
                   <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
@@ -649,11 +658,12 @@ export default function SmartQueueGate() {
               <h2 className="text-lg font-bold text-gray-900">이용 안내</h2>
               <div className="mt-4 space-y-3 text-sm leading-relaxed text-gray-600">
                 <GuideCard title="대기번호는 즉시 발급됩니다" body="버튼 클릭 시 서버가 즉시 번호를 발급하며, 같은 번호가 화면에 바로 표시됩니다." />
-                <GuideCard title="오픈 시간 동시 오픈" body="오픈 시각(KST)에 모든 사용자에게 버튼이 동시에 열리고, 클릭 순서대로 번호가 부여됩니다." />
+                <GuideCard title="오픈 시간 동시 오픈" body="1차와 2차는 각각 설정된 오픈 시각(KST)에 열리며, 해당 차수 안에서 클릭 순서대로 번호가 부여됩니다." />
                 <GuideCard title="대기 접수는 상한에서 마감됩니다" body={`대기번호 발급은 ${queueJoinLimit.toLocaleString()}명(정규+예비의 1.5배)까지만 열리며, 상한 도달 시 새 번호 발급이 종료됩니다.`} />
                 <GuideCard title="입장은 연속으로 이어집니다" body={`동시 작성 가능 인원 ${maxActiveSessions}명을 유지하며, 제출/만료로 자리가 생기면 다음 순번이 즉시 입장합니다.`} />
                 <GuideCard title="작성 시간은 3분입니다" body="입장 후 3분 안에 제출하지 않으면 세션이 만료되고, 다시 대기열에서 새 번호를 받아야 합니다." />
                 <GuideCard title="실시간 정보 기준" body="상단에 KST 기준 시각과 실시간/캐시 상태가 표시됩니다. 캐시 기준일 때는 최신 반영까지 수초 지연될 수 있습니다." />
+                <GuideCard title="2차 모집 안내" body="1차에서 신청하지 못한 경우 2차 오픈 시각에 다시 대기열에 입장해 새 번호를 받을 수 있습니다." />
               </div>
             </section>
 
@@ -668,6 +678,23 @@ export default function SmartQueueGate() {
                   프로그램 이미지 보기
                 </button>
               )}
+            </section>
+
+            <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
+              <h2 className="text-lg font-bold text-gray-900">문의 안내</h2>
+              <p className="mt-4 whitespace-pre-line text-sm leading-relaxed text-gray-600">
+                문의처 02-6959-3871~3{'\n'}
+                카카오 문의를 권장 합니다.{'\n'}
+                교육 프로그램 및 홈페이지 기능 관련 문의
+              </p>
+              <a
+                href="https://pf.kakao.com/_wxexmxgn/chat"
+                target="_blank"
+                rel="noreferrer"
+                className="mt-4 flex w-full items-center justify-center rounded-2xl bg-[#FEE500] px-5 py-3 text-sm font-bold text-[#191919] transition hover:brightness-95"
+              >
+                카카오채널 문의
+              </a>
             </section>
 
           </div>

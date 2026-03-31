@@ -2,6 +2,7 @@
 import { Link } from 'react-router-dom';
 import { ChevronRight, Clock, FileEdit, Search } from 'lucide-react';
 import { useSchool } from '../../contexts/SchoolContext';
+import { getCurrentAdmissionRound, normalizeAdmissionRounds } from '../../lib/admissionRounds';
 
 const dateOptions: Intl.DateTimeFormatOptions = {
   month: 'long',
@@ -50,7 +51,9 @@ export default function SchoolMain() {
   }
 
   const now = new Date();
-  const openTime = new Date(schoolConfig.openDateTime);
+  const rounds = normalizeAdmissionRounds(schoolConfig);
+  const currentRound = getCurrentAdmissionRound(schoolConfig, now.getTime()) || rounds[0];
+  const openTime = new Date(currentRound?.openDateTime || schoolConfig.openDateTime);
   const openTimestamp = openTime.getTime();
   const isValidOpenTime = !Number.isNaN(openTimestamp);
   const isOpen = isValidOpenTime ? now.getTime() >= openTimestamp : false;
@@ -62,7 +65,7 @@ export default function SchoolMain() {
     seconds: Math.floor((countdownMs % (1000 * 60)) / 1000)
   };
 
-  const openDateLabel = formatDateLabel(schoolConfig.openDateTime);
+  const openDateLabel = formatDateLabel(currentRound?.openDateTime || schoolConfig.openDateTime);
   const heroMessage =
     schoolConfig.heroMessage?.trim() ||
     schoolConfig.parkingMessage?.trim() ||
@@ -77,15 +80,16 @@ export default function SchoolMain() {
         weekday: 'short',
         timeZone: 'Asia/Seoul'
       })}`,
-    `정규 신청 ${schoolConfig.maxCapacity || 0}명`,
-    `예비 접수 ${schoolConfig.waitlistCapacity || 0}명`
+    ...rounds
+      .filter((round) => round.enabled)
+      .map((round) => `${round.label} ${round.maxCapacity}명 + 예비 ${round.waitlistCapacity}명`)
   ].filter(Boolean) as string[];
 
   const steps = [
     {
       label: 'STEP 1',
       title: '오픈 시각 확인',
-      detail: '카운트다운이 끝나면 게이트 버튼이 열리고, 그때부터 클릭 순서가 기록됩니다.'
+      detail: '1차와 2차는 각각 설정된 KST 오픈 시각에 열리며, 해당 차수 버튼이 동시에 열립니다.'
     },
     {
       label: 'STEP 2',
@@ -95,7 +99,7 @@ export default function SchoolMain() {
     {
       label: 'STEP 3',
       title: '신청 완료',
-      detail: '입장 후 3분 안에 신청서를 제출하면 확정 또는 예비 접수 결과가 안내됩니다.'
+      detail: '입장 후 3분 안에 신청서를 제출하면 해당 차수 기준으로 확정 또는 예비 접수 결과가 안내됩니다.'
     }
   ];
 
@@ -120,8 +124,8 @@ export default function SchoolMain() {
                 </div>
               </div>
               <div className="grid gap-2 text-sm text-gray-500 md:text-right">
-                <p className="font-semibold text-gray-900">{isOpen ? '현재 게이트가 열려 있습니다' : '게이트 오픈 대기 중'}</p>
-                <p>{openDateLabel}</p>
+                  <p className="font-semibold text-gray-900">{isOpen ? `${currentRound?.label || '현재'} 게이트가 열려 있습니다` : `${currentRound?.label || '현재'} 게이트 오픈 대기 중`}</p>
+                  <p>{openDateLabel}</p>
               </div>
             </div>
 
@@ -143,7 +147,7 @@ export default function SchoolMain() {
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-center">
                 <p className="text-xs uppercase tracking-[0.3em] text-gray-500">게이트 상태</p>
-                <p className="text-2xl font-black text-gray-900">{isOpen ? '오픈됨' : '오픈 예정'}</p>
+                <p className="text-2xl font-black text-gray-900">{isOpen ? `${currentRound?.label || ''} 오픈됨` : `${currentRound?.label || ''} 오픈 예정`}</p>
                 {!isOpen && (
                   <p className="text-xs text-gray-500">
                     {pad(countdown.days)}일 {pad(countdown.hours)}:{pad(countdown.minutes)}:{pad(countdown.seconds)}
@@ -153,12 +157,12 @@ export default function SchoolMain() {
               </div>
               <div className="rounded-2xl border border-gray-200 bg-white p-4 text-center">
                 <p className="text-xs uppercase tracking-[0.3em] text-gray-500">정규 신청</p>
-                <p className="text-2xl font-black text-gray-900">{schoolConfig.maxCapacity || 0}</p>
+                <p className="text-2xl font-black text-gray-900">{currentRound?.maxCapacity || 0}</p>
                 <p className="text-xs text-gray-500">모집 인원</p>
               </div>
               <div className="rounded-2xl border border-gray-200 bg-white p-4 text-center">
                 <p className="text-xs uppercase tracking-[0.3em] text-gray-500">예비 접수</p>
-                <p className="text-2xl font-black text-gray-900">{schoolConfig.waitlistCapacity || 0}</p>
+                <p className="text-2xl font-black text-gray-900">{currentRound?.waitlistCapacity || 0}</p>
                 <p className="text-xs text-gray-500">추가 인원</p>
               </div>
             </div>
@@ -239,6 +243,24 @@ export default function SchoolMain() {
               </div>
             ))}
           </div>
+        </section>
+
+        <section className="rounded-[2rem] border border-gray-100 bg-white p-8 shadow-lg">
+          <h3 className="text-2xl font-bold text-gray-900">문의 안내</h3>
+          <p className="mt-3 text-sm leading-relaxed text-gray-600">
+            문의처 02-6959-3871~3
+            <br />
+            카카오 문의를 권장 합니다. 교육 프로그램 및 홈페이지 기능 관련 문의
+          </p>
+          <a
+            href="https://pf.kakao.com/_wxexmxgn/chat"
+            target="_blank"
+            rel="noreferrer"
+            className="mt-5 inline-flex items-center rounded-2xl bg-[#FEE500] px-5 py-3 text-sm font-bold text-[#191919] transition hover:brightness-95"
+          >
+            카카오채널 문의
+            <ChevronRight className="ml-1 h-4 w-4" />
+          </a>
         </section>
       </div>
     </div>

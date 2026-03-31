@@ -93,6 +93,25 @@ export default function SchoolList() {
         createdAt: Date.now(),
         maxCapacity: 100,
         waitlistCapacity: 50,
+        openDateTime: '',
+        admissionRounds: [
+          {
+            id: 'round1',
+            label: '1차',
+            openDateTime: '',
+            maxCapacity: 100,
+            waitlistCapacity: 50,
+            enabled: true
+          },
+          {
+            id: 'round2',
+            label: '2차',
+            openDateTime: '',
+            maxCapacity: 0,
+            waitlistCapacity: 0,
+            enabled: false
+          }
+        ],
         queueSettings: {
           enabled: true,
           maxActiveSessions: 60
@@ -124,12 +143,14 @@ export default function SchoolList() {
       };
 
       await setDoc(doc(db, 'schools', schoolId), newSchool);
-      await setDoc(doc(db, 'schools', schoolId, 'queueState', 'current'), {
+      await setDoc(doc(db, 'schools', schoolId, 'queueState', 'round1'), {
         currentNumber: 0,
         lastAssignedNumber: 0,
         lastAdvancedAt: 0,
         activeReservationCount: 0,
         pendingAdmissionCount: 0,
+        roundId: 'round1',
+        roundLabel: '1차',
         confirmedCount: 0,
         waitlistedCount: 0,
         totalCapacity: 150,

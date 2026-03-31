@@ -12,7 +12,18 @@ if (admin.apps.length === 0) {
 type QueueEntryStatus = 'waiting' | 'eligible' | 'consumed' | 'expired';
 type ReservationStatus = 'reserved' | 'processing' | 'confirmed' | 'expired' | 'cancelled';
 
+interface AdmissionRoundConfig {
+  id: string;
+  label: string;
+  openDateTime: string;
+  maxCapacity: number;
+  waitlistCapacity: number;
+  enabled: boolean;
+}
+
 interface QueueStateDoc {
+  roundId: string;
+  roundLabel: string;
   currentNumber: number;
   lastAssignedNumber: number;
   lastAdvancedAt: number;
@@ -28,6 +39,8 @@ interface QueueStateDoc {
 }
 
 interface QueueEntryDoc {
+  roundId: string;
+  roundLabel?: string;
   userId: string;
   number: number | null;
   status: QueueEntryStatus;
@@ -39,6 +52,8 @@ interface QueueEntryDoc {
 }
 
 interface ReservationDoc {
+  roundId: string;
+  roundLabel?: string;
   userId: string;
   queueNumber: number | null;
   status: ReservationStatus;
@@ -169,9 +184,64 @@ function getRateLimitIdentifier(rawRequest: any, fallback: string) {
   return fallback;
 }
 
-function getTotalCapacity(schoolData: admin.firestore.DocumentData) {
-  const maxCapacity = Number(schoolData.maxCapacity || 0);
-  const waitlistCapacity = Number(schoolData.waitlistCapacity || 0);
+function normalizeAdmissionRounds(schoolData: admin.firestore.DocumentData): AdmissionRoundConfig[] {
+  const rounds = Array.isArray(schoolData.admissionRounds) && schoolData.admissionRounds.length > 0
+    ? schoolData.admissionRounds
+    : [
+        {
+          id: 'round1',
+          label: '1차',
+          openDateTime: schoolData.openDateTime || '',
+          maxCapacity: Number(schoolData.maxCapacity || 0),
+          waitlistCapacity: Number(schoolData.waitlistCapacity || 0),
+          enabled: true
+        }
+      ];
+
+  const fallbackRounds: AdmissionRoundConfig[] = [
+    { id: 'round1', label: '1차', openDateTime: '', maxCapacity: 0, waitlistCapacity: 0, enabled: true },
+    { id: 'round2', label: '2차', openDateTime: '', maxCapacity: 0, waitlistCapacity: 0, enabled: false }
+  ];
+
+  return fallbackRounds.map((fallback, index) => {
+    const source = rounds[index] || {};
+    return {
+      id: String(source.id || fallback.id),
+      label: String(source.label || fallback.label),
+      openDateTime: String(source.openDateTime || fallback.openDateTime || ''),
+      maxCapacity: Math.max(0, Number(source.maxCapacity ?? fallback.maxCapacity)),
+      waitlistCapacity: Math.max(0, Number(source.waitlistCapacity ?? fallback.waitlistCapacity)),
+      enabled: index === 0 ? true : source.enabled !== false
+    };
+  }).filter((round) => round.enabled);
+}
+
+function getResolvedAdmissionRound(schoolData: admin.firestore.DocumentData, now = Date.now()) {
+  const rounds = normalizeAdmissionRounds(schoolData);
+  if (rounds.length === 0) {
+    throw new functions.https.HttpsError('failed-precondition', '모집 차수가 설정되지 않았습니다.');
+  }
+
+  const openedRounds = rounds.filter((round) => {
+    const openTime = new Date(round.openDateTime || 0).getTime();
+    return openTime && !Number.isNaN(openTime) && now >= openTime;
+  });
+
+  return openedRounds.length > 0 ? openedRounds[openedRounds.length - 1] : rounds[0];
+}
+
+function getRoundById(schoolData: admin.firestore.DocumentData, roundId?: string | null) {
+  const rounds = normalizeAdmissionRounds(schoolData);
+  if (!roundId) {
+    return null;
+  }
+
+  return rounds.find((round) => round.id === roundId) || null;
+}
+
+function getRoundCapacity(round: AdmissionRoundConfig) {
+  const maxCapacity = Number(round.maxCapacity || 0);
+  const waitlistCapacity = Number(round.waitlistCapacity || 0);
   return {
     maxCapacity,
     waitlistCapacity,
@@ -183,8 +253,8 @@ function getMaxActiveSessions(schoolData: admin.firestore.DocumentData) {
   return Math.max(1, Number(schoolData.queueSettings?.maxActiveSessions || 60));
 }
 
-function getQueueJoinLimit(schoolData: admin.firestore.DocumentData) {
-  const { totalCapacity } = getTotalCapacity(schoolData);
+function getQueueJoinLimit(round: AdmissionRoundConfig) {
+  const { totalCapacity } = getRoundCapacity(round);
   return Math.max(1, Math.ceil(totalCapacity * 1.5));
 }
 
@@ -192,22 +262,22 @@ function isQueueEnabled(schoolData: admin.firestore.DocumentData) {
   return schoolData.queueSettings?.enabled !== false;
 }
 
-function assertSchoolOpen(schoolData: admin.firestore.DocumentData) {
+function assertSchoolOpen(schoolData: admin.firestore.DocumentData, round: AdmissionRoundConfig, now = Date.now()) {
   if (schoolData.isActive === false) {
     throw new functions.https.HttpsError('failed-precondition', '?꾩옱 ?묒닔瑜?吏꾪뻾?섍퀬 ?덉? ?딆뒿?덈떎.');
   }
 
-  const openTime = new Date(schoolData.openDateTime || 0).getTime();
+  const openTime = new Date(round.openDateTime || 0).getTime();
   if (!openTime || Number.isNaN(openTime)) {
     throw new functions.https.HttpsError('failed-precondition', '?묒닔 ?쒖옉 ?쒓컙???ㅼ젙?섏뼱 ?덉? ?딆뒿?덈떎.');
   }
-  if (Date.now() < openTime) {
+  if (now < openTime) {
     throw new functions.https.HttpsError('failed-precondition', '?꾩쭅 ?묒닔 ?쒖옉 ?쒓컙???꾨떃?덈떎.');
   }
 }
 
-function queueStateRef(db: admin.firestore.Firestore, schoolId: string) {
-  return db.doc(`schools/${schoolId}/queueState/current`);
+function queueStateRef(db: admin.firestore.Firestore, schoolId: string, roundId: string) {
+  return db.doc(`schools/${schoolId}/queueState/${roundId}`);
 }
 
 function queueEntriesRef(db: admin.firestore.Firestore, schoolId: string) {
@@ -230,13 +300,14 @@ function sanitizeRequestId(requestId?: string) {
 
 function buildQueueStateDoc(
   schoolData: admin.firestore.DocumentData,
+  round: AdmissionRoundConfig,
   existing?: Partial<QueueStateDoc> | null
 ): QueueStateDoc {
-  const { totalCapacity } = getTotalCapacity(schoolData);
+  const { totalCapacity } = getRoundCapacity(round);
   const maxActiveSessions = getMaxActiveSessions(schoolData);
   const pendingAdmissionCount = Number(existing?.pendingAdmissionCount ?? 0);
-  const confirmedCount = Number(existing?.confirmedCount ?? schoolData.stats?.confirmedCount ?? 0);
-  const waitlistedCount = Number(existing?.waitlistedCount ?? schoolData.stats?.waitlistedCount ?? 0);
+  const confirmedCount = Number(existing?.confirmedCount ?? 0);
+  const waitlistedCount = Number(existing?.waitlistedCount ?? 0);
   const activeReservationCount = Number(existing?.activeReservationCount ?? 0);
   const currentNumber = Number(existing?.currentNumber ?? 0);
   const lastAssignedNumber = Number(existing?.lastAssignedNumber ?? 0);
@@ -244,6 +315,8 @@ function buildQueueStateDoc(
   const updatedAt = Number(existing?.updatedAt ?? Date.now());
 
   return {
+    roundId: round.id,
+    roundLabel: round.label,
     currentNumber,
     lastAssignedNumber,
     lastAdvancedAt,
@@ -279,6 +352,7 @@ async function loadEntriesForPromotion(
   transaction: admin.firestore.Transaction,
   db: admin.firestore.Firestore,
   schoolId: string,
+  roundId: string,
   fromNumber: number,
   targetCount: number
 ) {
@@ -288,6 +362,7 @@ async function loadEntriesForPromotion(
 
   const snapshot = await transaction.get(
     queueEntriesRef(db, schoolId)
+      .where('roundId', '==', roundId)
       .where('status', '==', 'waiting')
       .where('number', '>', fromNumber)
       .orderBy('number', 'asc')
@@ -342,17 +417,18 @@ async function getExistingRequestResult(
   return (snapshot.data() as RequestLockDoc).result;
 }
 
-function queueIssuerRef(schoolId: string) {
-  return admin.database().ref(`queueIssuer/${schoolId}`);
+function queueIssuerRef(schoolId: string, roundId: string) {
+  return admin.database().ref(`queueIssuer/${schoolId}/${roundId}`);
 }
 
 async function issueQueueNumberFromRtdb(
   schoolId: string,
+  roundId: string,
   userId: string,
   now: number,
   queueJoinLimit: number
 ) {
-  const issuerRef = queueIssuerRef(schoolId);
+  const issuerRef = queueIssuerRef(schoolId, roundId);
   let issuedNumber: number | null = null;
   let existingNumber: number | null = null;
   let limitReached = false;
@@ -411,17 +487,18 @@ async function issueQueueNumberFromRtdb(
   throw new functions.https.HttpsError('aborted', '?湲곕쾲??諛쒓툒 以?異⑸룎??諛쒖깮?덉뒿?덈떎. ?ㅼ떆 ?쒕룄??二쇱꽭??');
 }
 
-async function clearQueueNumberFromRtdb(schoolId: string, userId: string) {
-  await queueIssuerRef(schoolId).child(`assignments/${userId}`).remove();
+async function clearQueueNumberFromRtdb(schoolId: string, roundId: string, userId: string) {
+  await queueIssuerRef(schoolId, roundId).child(`assignments/${userId}`).remove();
 }
 
 async function advanceQueueForSchool(
   db: admin.firestore.Firestore,
   schoolId: string,
+  round: AdmissionRoundConfig,
   options?: { now?: number }
 ) {
   const schoolRef = db.doc(`schools/${schoolId}`);
-  const stateRef = queueStateRef(db, schoolId);
+  const stateRef = queueStateRef(db, schoolId, round.id);
   const now = options?.now ?? Date.now();
 
   return db.runTransaction(async (transaction) => {
@@ -439,7 +516,7 @@ async function advanceQueueForSchool(
       return 0;
     }
 
-    const queueState = buildQueueStateDoc(schoolData, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
+    const queueState = buildQueueStateDoc(schoolData, round, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
     const waitingCount = Math.max(0, queueState.lastAssignedNumber - queueState.currentNumber);
 
     if (waitingCount <= 0 || queueState.availableCapacity <= 0 || getAvailableWriterSlots(queueState) <= 0) {
@@ -451,7 +528,7 @@ async function advanceQueueForSchool(
       return 0;
     }
 
-    const promotionDocs = await loadEntriesForPromotion(transaction, db, schoolId, queueState.currentNumber, advanceAmount);
+    const promotionDocs = await loadEntriesForPromotion(transaction, db, schoolId, round.id, queueState.currentNumber, advanceAmount);
     const promotedCount = promoteEligibleEntries(transaction, promotionDocs, now);
     if (promotedCount <= 0) {
       return 0;
@@ -486,19 +563,21 @@ async function assertAdminAccessToSchool(db: admin.firestore.Firestore, uid: str
 
 async function recalculateQueueState(db: admin.firestore.Firestore, schoolId: string) {
   const schoolRef = db.doc(`schools/${schoolId}`);
-  const stateRef = queueStateRef(db, schoolId);
   const schoolSnapshot = await schoolRef.get();
   if (!schoolSnapshot.exists) {
     throw new functions.https.HttpsError('not-found', '?숆탳 ?뺣낫瑜?李얠쓣 ???놁뒿?덈떎.');
   }
 
   const schoolData = schoolSnapshot.data()!;
+  const round = getResolvedAdmissionRound(schoolData);
+  const stateRef = queueStateRef(db, schoolId, round.id);
   const existingState = (await stateRef.get()).data() as Partial<QueueStateDoc> | undefined;
   const [activeReservationsSnapshot, queueEntriesSnapshot] = await Promise.all([
     reservationsRef(db, schoolId)
+      .where('roundId', '==', round.id)
       .where('status', 'in', ['reserved', 'processing'])
       .get(),
-    queueEntriesRef(db, schoolId).get()
+    queueEntriesRef(db, schoolId).where('roundId', '==', round.id).get()
   ]);
 
   const activeReservationCount = activeReservationsSnapshot.size;
@@ -520,14 +599,14 @@ async function recalculateQueueState(db: admin.firestore.Firestore, schoolId: st
   });
   currentNumber = Math.min(currentNumber, lastAssignedNumber);
 
-  const nextState = buildQueueStateDoc(schoolData, {
+  const nextState = buildQueueStateDoc(schoolData, round, {
     ...(existingState || {}),
     currentNumber,
     lastAssignedNumber,
     activeReservationCount,
     pendingAdmissionCount,
-    confirmedCount: Number(schoolData.stats?.confirmedCount || 0),
-    waitlistedCount: Number(schoolData.stats?.waitlistedCount || 0),
+    confirmedCount: Number(existingState?.confirmedCount || 0),
+    waitlistedCount: Number(existingState?.waitlistedCount || 0),
     updatedAt: Date.now()
   });
 
@@ -538,10 +617,11 @@ async function recalculateQueueState(db: admin.firestore.Firestore, schoolId: st
 async function cleanupStaleQueueEntriesForSchool(
   db: admin.firestore.Firestore,
   schoolId: string,
+  round: AdmissionRoundConfig,
   options?: { now?: number; limitPerStatus?: number }
 ) {
   const schoolRef = db.doc(`schools/${schoolId}`);
-  const stateRef = queueStateRef(db, schoolId);
+  const stateRef = queueStateRef(db, schoolId, round.id);
   const now = options?.now ?? Date.now();
   const limitPerStatus = options?.limitPerStatus ?? 25;
   const waitingCutoff = now - WAITING_PRESENCE_TIMEOUT_MS;
@@ -550,11 +630,13 @@ async function cleanupStaleQueueEntriesForSchool(
   const [schoolSnapshot, waitingSnapshot, eligibleSnapshot] = await Promise.all([
     schoolRef.get(),
     queueEntriesRef(db, schoolId)
+      .where('roundId', '==', round.id)
       .where('status', '==', 'waiting')
       .where('lastSeenAt', '<=', waitingCutoff)
       .limit(limitPerStatus)
       .get(),
     queueEntriesRef(db, schoolId)
+      .where('roundId', '==', round.id)
       .where('status', '==', 'eligible')
       .where('lastSeenAt', '<=', eligibleCutoff)
       .limit(limitPerStatus)
@@ -569,7 +651,7 @@ async function cleanupStaleQueueEntriesForSchool(
 
   return db.runTransaction(async (transaction) => {
     const stateSnapshot = await transaction.get(stateRef);
-    const queueState = buildQueueStateDoc(schoolData, stateSnapshot.exists ? (stateSnapshot.data() as QueueStateDoc) : null);
+    const queueState = buildQueueStateDoc(schoolData, round, stateSnapshot.exists ? (stateSnapshot.data() as QueueStateDoc) : null);
     let pendingAdmissionCount = queueState.pendingAdmissionCount;
     let expiredWaiting = 0;
     let expiredEligible = 0;
@@ -617,7 +699,7 @@ async function cleanupStaleQueueEntriesForSchool(
     };
     const nextAdvance = getQueueAdvanceAmount(nextState, expiredEligible);
     const promotionDocs = nextAdvance > 0
-      ? await loadEntriesForPromotion(transaction, db, schoolId, nextState.currentNumber, nextAdvance)
+      ? await loadEntriesForPromotion(transaction, db, schoolId, round.id, nextState.currentNumber, nextAdvance)
       : [];
 
     staleWaitingRefs.forEach((ref) => {
@@ -689,17 +771,13 @@ async function expireReservationDocument(
   userId: string | null
 ) {
   const schoolRef = db.doc(`schools/${schoolId}`);
-  const stateRef = queueStateRef(db, schoolId);
   const reservationRef = reservationsRef(db, schoolId).doc(reservationId);
-  const queueEntryRef = userId ? queueEntriesRef(db, schoolId).doc(userId) : null;
   const now = Date.now();
 
   const result = await db.runTransaction(async (transaction) => {
-    const [schoolSnapshot, stateSnapshot, reservationSnapshot, queueEntrySnapshot] = await Promise.all([
+    const [schoolSnapshot, reservationSnapshot] = await Promise.all([
       transaction.get(schoolRef),
-      transaction.get(stateRef),
-      transaction.get(reservationRef),
-      queueEntryRef ? transaction.get(queueEntryRef) : Promise.resolve(null as any)
+      transaction.get(reservationRef)
     ]);
 
     if (!schoolSnapshot.exists || !reservationSnapshot.exists) {
@@ -707,6 +785,13 @@ async function expireReservationDocument(
     }
 
     const reservation = reservationSnapshot.data() as ReservationDoc;
+    const round = getRoundById(schoolSnapshot.data()!, reservation.roundId) || getResolvedAdmissionRound(schoolSnapshot.data()!);
+    const stateRef = queueStateRef(db, schoolId, round.id);
+    const queueEntryRef = queueEntriesRef(db, schoolId).doc(reservation.userId);
+    const [stateSnapshot, queueEntrySnapshot] = await Promise.all([
+      transaction.get(stateRef),
+      transaction.get(queueEntryRef)
+    ]);
     if (userId && reservation.userId !== userId) {
       throw new functions.https.HttpsError('permission-denied', '?대떦 ?몄뀡???묎렐?????놁뒿?덈떎.');
     }
@@ -715,7 +800,7 @@ async function expireReservationDocument(
     }
 
     const schoolData = schoolSnapshot.data()!;
-    const queueState = buildQueueStateDoc(schoolData, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
+    const queueState = buildQueueStateDoc(schoolData, round, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
     const activeReservationCount = Math.max(0, queueState.activeReservationCount - 1);
     const nextState = {
       ...queueState,
@@ -725,7 +810,7 @@ async function expireReservationDocument(
     };
     const nextAdvance = getQueueAdvanceAmount(nextState, 1);
     const promotionDocs = nextAdvance > 0
-      ? await loadEntriesForPromotion(transaction, db, schoolId, nextState.currentNumber, nextAdvance)
+      ? await loadEntriesForPromotion(transaction, db, schoolId, round.id, nextState.currentNumber, nextAdvance)
       : [];
 
     const actualAdvance = promoteEligibleEntries(transaction, promotionDocs, now);
@@ -743,20 +828,25 @@ async function expireReservationDocument(
     });
 
     if (queueEntryRef && queueEntrySnapshot?.exists) {
+      const currentEntry = queueEntrySnapshot.data() as QueueEntryDoc;
       transaction.set(queueEntryRef, {
-        status: 'expired',
-        eligibleAt: null,
-        activeReservationId: null,
-        updatedAt: now,
-        lastSeenAt: now
+        ...(currentEntry.roundId === round.id
+          ? {
+              status: 'expired',
+              eligibleAt: null,
+              activeReservationId: null,
+              updatedAt: now,
+              lastSeenAt: now
+            }
+          : {})
       }, { merge: true });
     }
 
-    return { expired: true, clearedUserId: reservation.userId };
+    return { expired: true, clearedUserId: reservation.userId, clearedRoundId: round.id };
   });
 
-  if (result.expired && result.clearedUserId) {
-    await clearQueueNumberFromRtdb(schoolId, result.clearedUserId);
+  if (result.expired && result.clearedUserId && (result as any).clearedRoundId) {
+    await clearQueueNumberFromRtdb(schoolId, (result as any).clearedRoundId, result.clearedUserId);
   }
 
   return result;
@@ -801,21 +891,19 @@ export const joinQueue = functionsV1.https.onCall(async (request: any, legacyCon
   }
 
   const schoolRef = db.doc(`schools/${schoolId}`);
-  const stateRef = queueStateRef(db, schoolId);
   const entryRef = queueEntriesRef(db, schoolId).doc(auth.uid);
-  const lockRef = requestLockRef(db, schoolId, requestId);
-  const [schoolSnapshot, entrySnapshot, stateSnapshot] = await Promise.all([
-    schoolRef.get(),
-    entryRef.get(),
-    stateRef.get()
-  ]);
+  const [schoolSnapshot, entrySnapshot] = await Promise.all([schoolRef.get(), entryRef.get()]);
 
   if (!schoolSnapshot.exists) {
     throw new functions.https.HttpsError('not-found', '?숆탳 ?뺣낫瑜?李얠쓣 ???놁뒿?덈떎.');
   }
 
   const schoolData = schoolSnapshot.data()!;
-  assertSchoolOpen(schoolData);
+  const round = getResolvedAdmissionRound(schoolData);
+  const stateRef = queueStateRef(db, schoolId, round.id);
+  const lockRef = requestLockRef(db, schoolId, `${round.id}_${requestId}`);
+  const stateSnapshot = await stateRef.get();
+  assertSchoolOpen(schoolData, round);
 
   if (!isQueueEnabled(schoolData)) {
     const directResult = {
@@ -830,12 +918,12 @@ export const joinQueue = functionsV1.https.onCall(async (request: any, legacyCon
   }
 
   const now = Date.now();
-  const queueState = buildQueueStateDoc(schoolData, stateSnapshot.exists ? (stateSnapshot.data() as QueueStateDoc) : null);
+  const queueState = buildQueueStateDoc(schoolData, round, stateSnapshot.exists ? (stateSnapshot.data() as QueueStateDoc) : null);
   const existingEntry = entrySnapshot.exists ? (entrySnapshot.data() as QueueEntryDoc) : null;
-  const queueJoinLimit = getQueueJoinLimit(schoolData);
+  const queueJoinLimit = getQueueJoinLimit(round);
   const totalCapacity = Number(queueState.totalCapacity || 0);
 
-  if (existingEntry && existingEntry.status !== 'expired') {
+  if (existingEntry && existingEntry.roundId === round.id && existingEntry.status !== 'expired') {
     const existingJoinResult = {
       success: true,
       accepted: true,
@@ -859,15 +947,19 @@ export const joinQueue = functionsV1.https.onCall(async (request: any, legacyCon
     return existingJoinResult;
   }
 
-  if (existingEntry?.status === 'expired') {
-    await clearQueueNumberFromRtdb(schoolId, auth.uid);
+  if (existingEntry?.status === 'expired' && existingEntry.roundId === round.id) {
+    await clearQueueNumberFromRtdb(schoolId, round.id, auth.uid);
+  }
+
+  if (existingEntry && existingEntry.roundId && existingEntry.roundId !== round.id) {
+    await clearQueueNumberFromRtdb(schoolId, existingEntry.roundId, auth.uid).catch(() => undefined);
   }
 
   if (totalCapacity <= 0 || queueState.availableCapacity <= 0) {
     throw new functions.https.HttpsError('resource-exhausted', '현재 신청 가능한 정원이 없습니다.');
   }
 
-  const issued = await issueQueueNumberFromRtdb(schoolId, auth.uid, now, queueJoinLimit);
+  const issued = await issueQueueNumberFromRtdb(schoolId, round.id, auth.uid, now, queueJoinLimit);
 
   try {
     const joinResult = await db.runTransaction(async (transaction) => {
@@ -883,12 +975,13 @@ export const joinQueue = functionsV1.https.onCall(async (request: any, legacyCon
 
       const freshQueueState = buildQueueStateDoc(
         schoolData,
+        round,
         freshStateSnapshot.exists ? (freshStateSnapshot.data() as QueueStateDoc) : null
       );
 
       if (freshEntrySnapshot.exists) {
         const freshEntry = freshEntrySnapshot.data() as QueueEntryDoc;
-        if (freshEntry.status !== 'expired' && freshEntry.number != null) {
+        if (freshEntry.roundId === round.id && freshEntry.status !== 'expired' && freshEntry.number != null) {
           const alreadyJoinedResult = {
             success: true,
             accepted: true,
@@ -906,6 +999,8 @@ export const joinQueue = functionsV1.https.onCall(async (request: any, legacyCon
       transaction.set(
         entryRef,
         {
+          roundId: round.id,
+          roundLabel: round.label,
           userId: auth.uid,
           number: issued.number,
           status: 'waiting',
@@ -939,10 +1034,11 @@ export const joinQueue = functionsV1.https.onCall(async (request: any, legacyCon
       return createdJoinResult;
     });
 
-    await advanceQueueForSchool(db, schoolId, { now: Date.now() });
+    await advanceQueueForSchool(db, schoolId, round, { now: Date.now() });
     const [finalStateSnapshot, finalEntrySnapshot] = await Promise.all([stateRef.get(), entryRef.get()]);
     const finalState = buildQueueStateDoc(
       schoolData,
+      round,
       finalStateSnapshot.exists ? (finalStateSnapshot.data() as QueueStateDoc) : null
     );
     const finalEntry = finalEntrySnapshot.exists ? (finalEntrySnapshot.data() as QueueEntryDoc) : null;
@@ -956,7 +1052,7 @@ export const joinQueue = functionsV1.https.onCall(async (request: any, legacyCon
     };
   } catch (error) {
     if (!issued.reused) {
-      await clearQueueNumberFromRtdb(schoolId, auth.uid).catch(() => undefined);
+      await clearQueueNumberFromRtdb(schoolId, round.id, auth.uid).catch(() => undefined);
     }
     throw error;
   }
@@ -991,30 +1087,32 @@ export const startRegistrationSession = functionsV1.https.onCall(async (request:
   }
 
   const schoolRef = db.doc(`schools/${schoolId}`);
-  const stateRef = queueStateRef(db, schoolId);
   const entryRef = queueEntriesRef(db, schoolId).doc(auth.uid);
-  const lockRef = requestLockRef(db, schoolId, requestId);
   const reservationCollectionRef = reservationsRef(db, schoolId);
   const reservationId = `reservation_${Date.now()}_${randomBytes(8).toString('hex')}`;
   const reservationRef = reservationCollectionRef.doc(reservationId);
 
   return db.runTransaction(async (transaction) => {
-    const [schoolSnapshot, stateSnapshot, entrySnapshot, lockSnapshot] = await Promise.all([
+    const [schoolSnapshot, entrySnapshot] = await Promise.all([
       transaction.get(schoolRef),
-      transaction.get(stateRef),
-      transaction.get(entryRef),
-      transaction.get(lockRef)
+      transaction.get(entryRef)
     ]);
-
-    if (lockSnapshot.exists) {
-      return (lockSnapshot.data() as RequestLockDoc).result;
-    }
     if (!schoolSnapshot.exists) {
       throw new functions.https.HttpsError('not-found', '?숆탳 ?뺣낫瑜?李얠쓣 ???놁뒿?덈떎.');
     }
 
     const schoolData = schoolSnapshot.data()!;
-    assertSchoolOpen(schoolData);
+    const round = getResolvedAdmissionRound(schoolData);
+    const stateRef = queueStateRef(db, schoolId, round.id);
+    const lockRef = requestLockRef(db, schoolId, `${round.id}_${requestId}`);
+    const [stateSnapshot, lockSnapshot] = await Promise.all([
+      transaction.get(stateRef),
+      transaction.get(lockRef)
+    ]);
+    if (lockSnapshot.exists) {
+      return (lockSnapshot.data() as RequestLockDoc).result;
+    }
+    assertSchoolOpen(schoolData, round);
 
     const activeReservationQuery = reservationCollectionRef
       .where('userId', '==', auth.uid)
@@ -1034,7 +1132,7 @@ export const startRegistrationSession = functionsV1.https.onCall(async (request:
       return result;
     }
 
-    const queueState = buildQueueStateDoc(schoolData, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
+    const queueState = buildQueueStateDoc(schoolData, round, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
     if (queueState.availableCapacity <= 0) {
       throw new functions.https.HttpsError('resource-exhausted', '?꾩옱 ?댁슜 媛?ν븳 ?좎껌 ?몄썝???놁뒿?덈떎.');
     }
@@ -1051,6 +1149,9 @@ export const startRegistrationSession = functionsV1.https.onCall(async (request:
       }
 
       const queueEntry = entrySnapshot.data() as QueueEntryDoc;
+      if (queueEntry.roundId !== round.id) {
+        throw new functions.https.HttpsError('failed-precondition', '현재 접수 차수에 다시 대기열 입장이 필요합니다.');
+      }
       queueNumber = queueEntry.number;
       if (queueEntry.status !== 'eligible' || queueEntry.number == null) {
         throw new functions.https.HttpsError('failed-precondition', '?袁⑹춦 ?醫롪퍕 揶쎛?館釉???뽮퐣揶쎛 ?袁⑤뻸??덈뼄.');
@@ -1070,7 +1171,7 @@ export const startRegistrationSession = functionsV1.https.onCall(async (request:
     };
     const nextAdvance = getQueueAdvanceAmount(nextState, 1);
     const promotionDocs = nextAdvance > 0
-      ? await loadEntriesForPromotion(transaction, db, schoolId, nextState.currentNumber, nextAdvance)
+      ? await loadEntriesForPromotion(transaction, db, schoolId, round.id, nextState.currentNumber, nextAdvance)
       : [];
 
     if (isQueueEnabled(schoolData)) {
@@ -1085,6 +1186,8 @@ export const startRegistrationSession = functionsV1.https.onCall(async (request:
 
     const expiresAt = now + DEFAULT_SESSION_MS;
     transaction.set(reservationRef, {
+      roundId: round.id,
+      roundLabel: round.label,
       userId: auth.uid,
       queueNumber,
       status: 'reserved',
@@ -1107,7 +1210,9 @@ export const startRegistrationSession = functionsV1.https.onCall(async (request:
       success: true,
       sessionId: reservationId,
       expiresAt,
-      queueNumber
+      queueNumber,
+      roundId: round.id,
+      roundLabel: round.label
     };
     transaction.set(lockRef, makeRequestLock('startRegistration', auth.uid, result));
     return result;
@@ -1142,7 +1247,9 @@ export const getReservationSession = functionsV1.https.onCall(async (request: an
       expiresAt: reservation.expiresAt,
       queueNumber: reservation.queueNumber ?? null,
       status: 'confirmed',
-      registrationId: reservation.registrationId ?? null
+      registrationId: reservation.registrationId ?? null,
+      roundId: reservation.roundId,
+      roundLabel: reservation.roundLabel ?? null
     };
   }
 
@@ -1159,7 +1266,9 @@ export const getReservationSession = functionsV1.https.onCall(async (request: an
     success: true,
     expiresAt: reservation.expiresAt,
     queueNumber: reservation.queueNumber ?? null,
-    status: reservation.status
+    status: reservation.status,
+    roundId: reservation.roundId,
+    roundLabel: reservation.roundLabel ?? null
   };
 });
 
@@ -1201,6 +1310,7 @@ export const heartbeatQueuePresence = functionsV1.https.onCall(async (request: a
   const entryRef = queueEntriesRef(db, schoolId).doc(auth.uid);
   const now = Date.now();
   const entrySnapshot = await entryRef.get();
+  let cleanupResult = null;
 
   if (entrySnapshot.exists) {
     const entry = entrySnapshot.data() as QueueEntryDoc;
@@ -1212,13 +1322,25 @@ export const heartbeatQueuePresence = functionsV1.https.onCall(async (request: a
         },
         { merge: true }
       );
+
+      cleanupResult = await cleanupStaleQueueEntriesForSchool(
+        db,
+        schoolId,
+        {
+          id: entry.roundId,
+          label: entry.roundLabel || (entry.roundId === 'round2' ? '2차' : '1차'),
+          openDateTime: '',
+          maxCapacity: 0,
+          waitlistCapacity: 0,
+          enabled: true
+        },
+        {
+          now,
+          limitPerStatus: 20
+        }
+      );
     }
   }
-
-  const cleanupResult = await cleanupStaleQueueEntriesForSchool(db, schoolId, {
-    now,
-    limitPerStatus: 20
-  });
 
   return {
     success: true,
@@ -1299,30 +1421,33 @@ export const confirmReservation = functionsV1.https.onCall(async (request: any, 
 
   const sanitizedFormData = sanitizeFormData(formData);
   const schoolRef = db.doc(`schools/${schoolId}`);
-  const stateRef = queueStateRef(db, schoolId);
   const reservationRef = reservationsRef(db, schoolId).doc(sessionId);
   const queueEntryRef = queueEntriesRef(db, schoolId).doc(auth.uid);
   const registrationRef = db.doc(`schools/${schoolId}/registrations/${sessionId}`);
-  const lockRef = requestLockRef(db, schoolId, requestId);
 
   const result = await db.runTransaction(async (transaction) => {
-    const [schoolSnapshot, stateSnapshot, reservationSnapshot, queueEntrySnapshot, lockSnapshot, registrationSnapshot] = await Promise.all([
+    const [schoolSnapshot, reservationSnapshot, queueEntrySnapshot, registrationSnapshot] = await Promise.all([
       transaction.get(schoolRef),
-      transaction.get(stateRef),
       transaction.get(reservationRef),
       transaction.get(queueEntryRef),
-      transaction.get(lockRef),
       transaction.get(registrationRef)
     ]);
-
-    if (lockSnapshot.exists) {
-      return (lockSnapshot.data() as RequestLockDoc).result;
-    }
     if (!schoolSnapshot.exists || !reservationSnapshot.exists) {
       throw new functions.https.HttpsError('failed-precondition', '?좏슚???깅줉 ?몄뀡???꾨떃?덈떎.');
     }
 
     const reservation = reservationSnapshot.data() as ReservationDoc;
+    const schoolData = schoolSnapshot.data()!;
+    const round = getRoundById(schoolData, reservation.roundId) || getResolvedAdmissionRound(schoolData);
+    const stateRef = queueStateRef(db, schoolId, round.id);
+    const lockRef = requestLockRef(db, schoolId, `${round.id}_${requestId}`);
+    const [stateSnapshot, lockSnapshot] = await Promise.all([
+      transaction.get(stateRef),
+      transaction.get(lockRef)
+    ]);
+    if (lockSnapshot.exists) {
+      return (lockSnapshot.data() as RequestLockDoc).result;
+    }
     if (reservation.userId !== auth.uid) {
       throw new functions.https.HttpsError('permission-denied', '?대떦 ?몄뀡???묎렐?????놁뒿?덈떎.');
     }
@@ -1357,9 +1482,8 @@ export const confirmReservation = functionsV1.https.onCall(async (request: any, 
       throw new functions.https.HttpsError('already-exists', '?대? ?숈씪???꾪솕踰덊샇濡??좎껌???대젰???덉뒿?덈떎.');
     }
 
-    const schoolData = schoolSnapshot.data()!;
-    const { maxCapacity, waitlistCapacity } = getTotalCapacity(schoolData);
-    const queueState = buildQueueStateDoc(schoolData, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
+    const { maxCapacity, waitlistCapacity } = getRoundCapacity(round);
+    const queueState = buildQueueStateDoc(schoolData, round, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
 
     let status: 'confirmed' | 'waitlisted' = 'confirmed';
     let rank: number | null = null;
@@ -1390,13 +1514,15 @@ export const confirmReservation = functionsV1.https.onCall(async (request: any, 
     };
     const nextAdvance = getQueueAdvanceAmount(nextState, 1);
     const promotionDocs = nextAdvance > 0
-      ? await loadEntriesForPromotion(transaction, db, schoolId, nextState.currentNumber, nextAdvance)
+      ? await loadEntriesForPromotion(transaction, db, schoolId, round.id, nextState.currentNumber, nextAdvance)
       : [];
 
     transaction.set(registrationRef, {
       ...sanitizedFormData,
       id: registrationRef.id,
       schoolId,
+      admissionRoundId: round.id,
+      admissionRoundLabel: round.label,
       sessionId,
       status,
       rank,
@@ -1420,22 +1546,17 @@ export const confirmReservation = functionsV1.https.onCall(async (request: any, 
     }, { merge: true });
     promoteEligibleEntries(transaction, promotionDocs, now);
 
-    transaction.set(schoolRef, {
-      stats: {
-        confirmedCount: nextConfirmedCount,
-        waitlistedCount: nextWaitlistedCount
-      },
-      updatedAt: now
-    }, { merge: true });
-
     if (queueEntrySnapshot.exists) {
-      transaction.set(queueEntryRef, {
-        status: 'consumed',
-        eligibleAt: null,
-        activeReservationId: null,
-        updatedAt: now,
-        lastSeenAt: now
-      }, { merge: true });
+      const queueEntry = queueEntrySnapshot.data() as QueueEntryDoc;
+      if (queueEntry.roundId === round.id) {
+        transaction.set(queueEntryRef, {
+          status: 'consumed',
+          eligibleAt: null,
+          activeReservationId: null,
+          updatedAt: now,
+          lastSeenAt: now
+        }, { merge: true });
+      }
     }
 
     const result = {
@@ -1448,7 +1569,11 @@ export const confirmReservation = functionsV1.https.onCall(async (request: any, 
     return result;
   });
 
-  await clearQueueNumberFromRtdb(schoolId, auth.uid).catch(() => undefined);
+  const reservationSnapshot = await reservationRef.get();
+  const reservation = reservationSnapshot.exists ? (reservationSnapshot.data() as ReservationDoc) : null;
+  if (reservation?.roundId) {
+    await clearQueueNumberFromRtdb(schoolId, reservation.roundId, auth.uid).catch(() => undefined);
+  }
   return result;
 });
 
@@ -1470,16 +1595,18 @@ export const cleanupExpiredReservations = functionsV1.pubsub
         .limit(100)
         .get();
 
-      for (const reservationDoc of reservationSnapshot.docs) {
-        const result = await expireReservationDocument(db, schoolId, reservationDoc.id, null);
-        if (result.expired) {
-          expiredCount += 1;
-        }
+    for (const reservationDoc of reservationSnapshot.docs) {
+      const result = await expireReservationDocument(db, schoolId, reservationDoc.id, null);
+      if (result.expired) {
+        expiredCount += 1;
       }
+    }
 
-      const queueCleanupResult = await cleanupStaleQueueEntriesForSchool(db, schoolId, { now, limitPerStatus: 50 });
-      await Promise.all(queueCleanupResult.clearedUserIds.map((userId) => clearQueueNumberFromRtdb(schoolId, userId)));
-      expiredQueueCount += queueCleanupResult.expiredWaiting + queueCleanupResult.expiredEligible;
+      for (const round of normalizeAdmissionRounds(schoolSnapshot.data())) {
+        const queueCleanupResult = await cleanupStaleQueueEntriesForSchool(db, schoolId, round, { now, limitPerStatus: 50 });
+        await Promise.all(queueCleanupResult.clearedUserIds.map((userId) => clearQueueNumberFromRtdb(schoolId, round.id, userId)));
+        expiredQueueCount += queueCleanupResult.expiredWaiting + queueCleanupResult.expiredEligible;
+      }
     }
 
     functions.logger.info('[cleanupExpiredReservations] completed', { expiredCount, expiredQueueCount });
@@ -1501,11 +1628,12 @@ export const autoAdvanceQueue = functionsV1.pubsub
         continue;
       }
 
-      const stateRef = queueStateRef(db, schoolId);
+      const round = getResolvedAdmissionRound(schoolData);
+      const stateRef = queueStateRef(db, schoolId, round.id);
 
       const advanced = await db.runTransaction(async (transaction) => {
         const stateSnapshot = await transaction.get(stateRef);
-        const queueState = buildQueueStateDoc(schoolData, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
+        const queueState = buildQueueStateDoc(schoolData, round, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
         const waitingCount = Math.max(0, queueState.lastAssignedNumber - queueState.currentNumber);
         const nowMs = Date.now();
 
@@ -1517,7 +1645,7 @@ export const autoAdvanceQueue = functionsV1.pubsub
           return 0;
         }
 
-        const promotionDocs = await loadEntriesForPromotion(transaction, db, schoolId, queueState.currentNumber, advanceAmount);
+        const promotionDocs = await loadEntriesForPromotion(transaction, db, schoolId, round.id, queueState.currentNumber, advanceAmount);
         const promotedCount = promoteEligibleEntries(transaction, promotionDocs, nowMs);
         if (promotedCount <= 0) {
           return 0;
@@ -1609,8 +1737,9 @@ export const runAdminQueueAction = functionsV1.https.onCall(async (request: any,
       }
     }
 
-    const queueCleanupResult = await cleanupStaleQueueEntriesForSchool(db, schoolId, { now, limitPerStatus: 100 });
-    await Promise.all(queueCleanupResult.clearedUserIds.map((userId) => clearQueueNumberFromRtdb(schoolId, userId)));
+    const round = getResolvedAdmissionRound((await db.doc(`schools/${schoolId}`).get()).data() || {});
+    const queueCleanupResult = await cleanupStaleQueueEntriesForSchool(db, schoolId, round, { now, limitPerStatus: 100 });
+    await Promise.all(queueCleanupResult.clearedUserIds.map((userId) => clearQueueNumberFromRtdb(schoolId, round.id, userId)));
 
     const queueState = await recalculateQueueState(db, schoolId);
     return {
@@ -1674,7 +1803,8 @@ export const resetSchoolState = functionsV1.https.onCall(async (request: any, le
     deleteCollectionInBatches(db.collection(`schools/${schoolId}/registrations`)),
     deleteCollectionInBatches(db.collection(`schools/${schoolId}/requestLocks`))
   ]);
-  await queueIssuerRef(schoolId).remove();
+  await queueIssuerRef(schoolId, 'round1').remove();
+  await queueIssuerRef(schoolId, 'round2').remove();
 
   await schoolRef.set({
     stats: {
@@ -1684,15 +1814,17 @@ export const resetSchoolState = functionsV1.https.onCall(async (request: any, le
     updatedAt: now
   }, { merge: true });
 
-  await queueStateRef(db, schoolId).set(buildQueueStateDoc(schoolData, {
-    currentNumber: 0,
-    lastAssignedNumber: 0,
-    lastAdvancedAt: 0,
-    activeReservationCount: 0,
-    confirmedCount: 0,
-    waitlistedCount: 0,
-    updatedAt: now
-  }), { merge: true });
+  for (const round of normalizeAdmissionRounds(schoolData)) {
+    await queueStateRef(db, schoolId, round.id).set(buildQueueStateDoc(schoolData, round, {
+      currentNumber: 0,
+      lastAssignedNumber: 0,
+      lastAdvancedAt: 0,
+      activeReservationCount: 0,
+      confirmedCount: 0,
+      waitlistedCount: 0,
+      updatedAt: now
+    }), { merge: true });
+  }
 
   return { success: true };
 });

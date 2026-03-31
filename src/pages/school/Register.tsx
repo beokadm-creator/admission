@@ -66,6 +66,7 @@ export default function RegisterPage() {
   const [termsAgreed, setTermsAgreed] = useState({ privacy: false, thirdParty: false, sms: false });
   const [submitting, setSubmitting] = useState(false);
   const [expiredToast, setExpiredToast] = useState(false);
+  const [softNotice, setSoftNotice] = useState<string | null>(null);
   const navigatingRef = useRef(false);
   const expireRequestIdRef = useRef<string | null>(null);
   const confirmRequestIdRef = useRef<string | null>(null);
@@ -106,8 +107,8 @@ export default function RegisterPage() {
         setReservingSlot(false);
         localStorage.removeItem(`registrationSessionId_${schoolId}`);
         localStorage.removeItem(`registrationExpiresAt_${schoolId}`);
-        alert(error?.message || '등록 세션을 확인할 수 없습니다. 메인으로 이동합니다.');
-        navigate(`/${schoolId}`);
+        setSoftNotice('?? ?? ??? ?????? ???? ?? ?????. ??? ???? ?????.');
+        window.setTimeout(() => navigate(`/${schoolId}/gate`), 1200);
       }
     };
 
@@ -139,7 +140,7 @@ export default function RegisterPage() {
         }
       }
 
-      setTimeout(() => navigate(`/${schoolId}`), 2500);
+      setTimeout(() => navigate(`/${schoolId}/gate`), 2500);
     };
 
     const tick = () => {
@@ -227,11 +228,11 @@ export default function RegisterPage() {
       if (error?.code === 'functions/deadline-exceeded') {
         localStorage.removeItem(`registrationSessionId_${schoolId}`);
         localStorage.removeItem(`registrationExpiresAt_${schoolId}`);
-        alert(error?.message || '세션이 만료되었습니다. 다시 시도해주세요.');
-        navigate(`/${schoolId}`);
+        setSoftNotice('?? ??? ???????. ?? ???? ??? ???.');
+        navigate(`/${schoolId}/gate`);
       } else if (error?.code === 'functions/failed-precondition') {
-        alert(error?.message || '유효하지 않은 등록 세션입니다.');
-        navigate(`/${schoolId}`);
+        setSoftNotice('??? ??? ?? ??? ????. ??? ???? ?????.');
+        navigate(`/${schoolId}/gate`);
       } else if (error?.code === 'functions/already-exists') {
         alert('이미 동일한 전화번호로 신청된 내역이 있습니다. 신청 조회 페이지에서 확인해주세요.');
       } else {
@@ -266,6 +267,20 @@ export default function RegisterPage() {
           <div className="mt-5 w-full h-1 bg-gray-100 rounded-full overflow-hidden">
             <div className="h-full bg-amber-400 animate-[shrink_2.5s_linear_forwards]" style={{ width: '100%' }} />
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (softNotice) {
+    return (
+      <div className="min-h-screen bg-snu-gray flex items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-lg shadow-md border border-gray-100 text-center max-w-sm w-full">
+          <div className="w-16 h-16 mx-auto mb-5 flex items-center justify-center rounded-full bg-amber-50 border border-amber-100">
+            <AlertTriangle className="w-8 h-8 text-amber-500" />
+          </div>
+          <h3 className="text-xl font-bold text-gray-900">안내</h3>
+          <p className="mt-3 text-sm leading-relaxed text-gray-500">{softNotice}</p>
         </div>
       </div>
     );
