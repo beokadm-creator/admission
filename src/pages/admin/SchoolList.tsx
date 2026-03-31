@@ -95,8 +95,6 @@ export default function SchoolList() {
         waitlistCapacity: 50,
         queueSettings: {
           enabled: true,
-          batchSize: 1,
-          batchInterval: 1000,
           maxActiveSessions: 60
         },
         formFields: {

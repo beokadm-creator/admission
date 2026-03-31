@@ -228,7 +228,7 @@ export default function SmartQueueGate() {
         : remainingCapacity <= 0
           ? '모집 정원과 예비 정원이 모두 마감되어 더 이상 새로운 대기번호를 발급할 수 없습니다.'
           : queueLimitReached
-            ? `대기 접수 상한 ${queueJoinLimit.toLocaleString()}명에 도달해 버튼이 비활성화되었습니다. 이미 번호를 받은 분들만 계속 진행할 수 있습니다.`
+            ? `대기 접수 상한 ${queueJoinLimit.toLocaleString()}명(정규+예비의 1.5배)에 도달해 버튼이 비활성화되었습니다. 이미 번호를 받은 분들만 계속 진행할 수 있습니다.`
             : null
       : null;
 
@@ -378,7 +378,7 @@ export default function SmartQueueGate() {
       }
     } catch (error: any) {
       joinRequestIdRef.current = null;
-      setErrorMessage(error?.message || '?湲곗뿴 ?낆옣???ㅽ뙣?덉뒿?덈떎. ?좎떆 ???ㅼ떆 ?쒕룄??二쇱꽭??');
+      setErrorMessage(error?.message || '대기열 입장에 실패했습니다. 잠시 후 다시 시도해 주세요.');
     } finally {
       joinRequestIdRef.current = null;
       setJoining(false);
@@ -410,7 +410,7 @@ export default function SmartQueueGate() {
       startRequestIdRef.current = null;
       setAutoEntering(false);
       autoStartedRef.current = false;
-      setErrorMessage(error?.message || '?좎껌???섏씠吏濡??대룞?섏? 紐삵뻽?듬땲?? ?ㅼ떆 ?쒕룄??二쇱꽭??');
+      setErrorMessage(error?.message || '신청 페이지로 이동하지 못했습니다. 잠시 후 다시 시도해 주세요.');
     } finally {
       setStarting(false);
     }
@@ -622,7 +622,7 @@ export default function SmartQueueGate() {
                   ? '이전 작성 기회가 종료되었습니다. 다시 대기열에 입장하면 새 번호가 발급됩니다.'
                   : queueLimitReached
                     ? `대기 접수 상한 ${queueJoinLimit.toLocaleString()}명에 도달해 버튼이 비활성화되었습니다. 이미 번호를 받은 분들만 계속 진행할 수 있습니다.`
-                    : '대기 화면을 유지하면 내 번호와 현재 입장 번호가 실시간으로 갱신됩니다. 화면을 오래 닫아 두면 대기열에서 제외될 수 있습니다.'}
+                    : '대기 화면을 유지하면 내 번호와 현재 입장 번호가 실시간으로 갱신됩니다. 화면을 1분 이상 닫아 두면 대기열에서 제외될 수 있습니다.'}
               </div>
 
             {joinDisabledReason && (
@@ -648,11 +648,12 @@ export default function SmartQueueGate() {
             <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
               <h2 className="text-lg font-bold text-gray-900">이용 안내</h2>
               <div className="mt-4 space-y-3 text-sm leading-relaxed text-gray-600">
-                <GuideCard title="대기번호는 즉시 발급됩니다" body="버튼을 누르면 서버가 즉시 대기번호를 발급하고 화면에도 바로 반영합니다." />
-                <GuideCard title="오픈 시간 동시 오픈" body="오픈 시간이 되면 모든 사용자에게 대기열 버튼이 동시에 열리고, 클릭 순서대로 번호가 부여됩니다." />
-                <GuideCard title="대기 접수는 상한에서 마감됩니다" body={`대기번호 발급은 운영 상한 ${queueJoinLimit.toLocaleString()}명까지만 열리며, 상한에 도달하면 버튼이 비활성화되고 이미 번호를 받은 분들만 계속 진행합니다.`} />
-                <GuideCard title="입장은 연속으로 이어집니다" body={`동시 작성 가능 인원 ${maxActiveSessions}명을 기준으로 운영되며, 제출 또는 만료로 자리가 생기면 다음 순번이 즉시 입장합니다.`} />
-                <GuideCard title="작성 시간은 3분입니다" body="3분 안에 제출하지 않으면 세션이 만료되고, 다시 신청하려면 대기열에 다시 입장해야 합니다." />
+                <GuideCard title="대기번호는 즉시 발급됩니다" body="버튼 클릭 시 서버가 즉시 번호를 발급하며, 같은 번호가 화면에 바로 표시됩니다." />
+                <GuideCard title="오픈 시간 동시 오픈" body="오픈 시각(KST)에 모든 사용자에게 버튼이 동시에 열리고, 클릭 순서대로 번호가 부여됩니다." />
+                <GuideCard title="대기 접수는 상한에서 마감됩니다" body={`대기번호 발급은 ${queueJoinLimit.toLocaleString()}명(정규+예비의 1.5배)까지만 열리며, 상한 도달 시 새 번호 발급이 종료됩니다.`} />
+                <GuideCard title="입장은 연속으로 이어집니다" body={`동시 작성 가능 인원 ${maxActiveSessions}명을 유지하며, 제출/만료로 자리가 생기면 다음 순번이 즉시 입장합니다.`} />
+                <GuideCard title="작성 시간은 3분입니다" body="입장 후 3분 안에 제출하지 않으면 세션이 만료되고, 다시 대기열에서 새 번호를 받아야 합니다." />
+                <GuideCard title="실시간 정보 기준" body="상단에 KST 기준 시각과 실시간/캐시 상태가 표시됩니다. 캐시 기준일 때는 최신 반영까지 수초 지연될 수 있습니다." />
               </div>
             </section>
 

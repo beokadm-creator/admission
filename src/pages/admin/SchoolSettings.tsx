@@ -231,8 +231,6 @@ export default function SchoolSettings() {
       previewToken: '',
       queueSettings: {
         enabled: true,
-        batchSize: 1,
-        batchInterval: 1,
         maxActiveSessions: 60
       },
       formFields: {
@@ -324,8 +322,6 @@ export default function SchoolSettings() {
         setValue('popupContent', data.popupContent || '');
         setValue('previewToken', data.previewToken || '');
         setValue('queueSettings.enabled', data.queueSettings?.enabled !== false);
-        setValue('queueSettings.batchSize', 1);
-        setValue('queueSettings.batchInterval', 1);
         setValue('queueSettings.maxActiveSessions', data.queueSettings?.maxActiveSessions || 60);
         setValue('formFields.collectEmail', !!data.formFields?.collectEmail);
         setValue('formFields.collectAddress', !!data.formFields?.collectAddress);
@@ -535,8 +531,6 @@ export default function SchoolSettings() {
         previewToken: data.previewToken || '',
         queueSettings: {
           enabled: data.queueSettings?.enabled !== false,
-          batchSize: 1,
-          batchInterval: 1000,
           maxActiveSessions
         },
         formFields: {
@@ -791,7 +785,10 @@ export default function SchoolSettings() {
                       className={inputClassName}
                     />
                   </Field>
-                  <Field label="동시 작성 가능 인원">
+                  <Field
+                    label="동시 작성 가능 인원"
+                    hint="예: 50으로 설정하면 작성 중 인원을 최대 50명으로 유지하고, 제출/만료 시 다음 순번 1명이 즉시 입장합니다."
+                  >
                     <input
                       {...register('queueSettings.maxActiveSessions', { required: true, valueAsNumber: true })}
                       type="number"
