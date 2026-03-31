@@ -96,7 +96,7 @@ export default function SchoolList() {
         queueSettings: {
           enabled: true,
           batchSize: 1,
-          batchInterval: 10000,
+          batchInterval: 1000,
           maxActiveSessions: 60
         },
         formFields: {

@@ -97,9 +97,6 @@ export default function SmartQueueGate() {
   const startRequestIdRef = useRef<string | null>(null);
 
   const queueEnabled = schoolConfig?.queueSettings?.enabled !== false;
-  const batchSize = schoolConfig?.queueSettings?.batchSize || 1;
-  const batchIntervalMs = schoolConfig?.queueSettings?.batchInterval || 10000;
-  const batchIntervalSeconds = Math.max(1, Math.round(batchIntervalMs / 1000));
   const maxActiveSessions = schoolConfig?.queueSettings?.maxActiveSessions || queueState.maxActiveSessions || 60;
   const regularCapacity = schoolConfig?.maxCapacity || 0;
   const waitlistCapacity = schoolConfig?.waitlistCapacity || 0;
@@ -108,6 +105,13 @@ export default function SmartQueueGate() {
   const isOpen = !!openTimeMs && now >= openTimeMs;
   const openDateLabel = formatDateLabel(openTimeMs);
   const countdownLabel = formatCountdown(Math.max(0, openTimeMs - now));
+  const heroMessage =
+    schoolConfig?.heroMessage?.trim() ||
+    schoolConfig?.parkingMessage?.trim() ||
+    '오픈 시간이 되면 모든 사용자에게 버튼이 동시에 열리고, 클릭 순서대로 공식 대기번호가 발급됩니다.';
+  const programInfo =
+    schoolConfig?.programInfo?.trim() ||
+    '행사 개요, 준비물, 유의사항은 이 영역에서 함께 확인할 수 있습니다.';
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -208,7 +212,7 @@ export default function SmartQueueGate() {
   const canEnter = myEntry?.status === 'eligible' && myNumber !== null && myNumber <= queueState.currentNumber;
   const waitingAhead = myNumber ? Math.max(0, myNumber - queueState.currentNumber - 1) : 0;
   const estimatedWaitMinutes =
-    waitingAhead > 0 ? Math.max(1, Math.ceil((waitingAhead / Math.max(batchSize, 1)) * (batchIntervalMs / 60000))) : 0;
+    waitingAhead > 0 ? Math.max(1, Math.ceil((waitingAhead / Math.max(maxActiveSessions, 1)) * 3)) : 0;
   const remainingRegular = Math.max(0, regularCapacity - Math.min(queueState.confirmedCount, regularCapacity));
   const remainingWaitlist = Math.max(0, waitlistCapacity - Math.min(queueState.waitlistedCount, waitlistCapacity));
   const completedCount = queueState.confirmedCount + queueState.waitlistedCount;
@@ -317,7 +321,7 @@ export default function SmartQueueGate() {
     }
 
     return `앞에 약 ${waitingAhead}명이 대기 중이며, 예상 대기 시간은 약 ${estimatedWaitMinutes}분입니다.`;
-  }, [canEnter, estimatedWaitMinutes, isOpen, myEntry?.status, myNumber, queueLimitReached, queueState.availableCapacity, remainingCapacity, waitingAhead]);
+  }, [canEnter, estimatedWaitMinutes, isOpen, maxActiveSessions, myEntry?.status, myNumber, queueLimitReached, queueState.availableCapacity, remainingCapacity, waitingAhead]);
 
   const ensureQueueUserId = async () => {
     if (auth.currentUser?.uid) {
@@ -474,10 +478,23 @@ export default function SmartQueueGate() {
           <div className="bg-snu-blue px-6 py-8 text-white sm:px-8">
             <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.3em] text-white/70">QUEUE ACCESS</p>
-                <h1 className="mt-3 text-3xl font-bold sm:text-4xl">{schoolConfig?.name || '행사 신청 대기열'}</h1>
+                <div className="flex items-center gap-4">
+                  {schoolConfig?.logoUrl ? (
+                    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-white/15 bg-white/95 p-2 shadow-lg">
+                      <img
+                        src={schoolConfig.logoUrl}
+                        alt={`${schoolConfig?.name || '학교'} 로고`}
+                        className="max-h-full max-w-full object-contain"
+                      />
+                    </div>
+                  ) : null}
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.3em] text-white/70">QUEUE ACCESS</p>
+                    <h1 className="mt-2 text-3xl font-bold sm:text-4xl">{schoolConfig?.name || '행사 신청 대기열'}</h1>
+                  </div>
+                </div>
                 <p className="mt-4 max-w-3xl text-sm leading-relaxed text-white/90">
-                  오픈 후 버튼을 누르면 서버가 즉시 공식 대기번호를 발급하고, 작성 가능 인원 범위 안에서 순서대로 입장합니다.
+                  {heroMessage}
                 </p>
                 <div className="mt-6 grid gap-3 sm:grid-cols-2">
                   <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
@@ -488,7 +505,7 @@ export default function SmartQueueGate() {
                   <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">운영 기준</p>
                     <p className="mt-2 text-sm">동시 작성 {maxActiveSessions}명</p>
-                    <p className="mt-1 text-sm">{batchIntervalSeconds}초마다 최대 {batchSize}명 입장</p>
+                    <p className="mt-1 text-sm">빈자리가 생기면 다음 순번 즉시 입장</p>
                     <p className="mt-1 text-sm">작성 시간 3분</p>
                   </div>
                 </div>
@@ -634,22 +651,24 @@ export default function SmartQueueGate() {
                 <GuideCard title="대기번호는 즉시 발급됩니다" body="버튼을 누르면 서버가 즉시 대기번호를 발급하고 화면에도 바로 반영합니다." />
                 <GuideCard title="오픈 시간 동시 오픈" body="오픈 시간이 되면 모든 사용자에게 대기열 버튼이 동시에 열리고, 클릭 순서대로 번호가 부여됩니다." />
                 <GuideCard title="대기 접수는 상한에서 마감됩니다" body={`대기번호 발급은 운영 상한 ${queueJoinLimit.toLocaleString()}명까지만 열리며, 상한에 도달하면 버튼이 비활성화되고 이미 번호를 받은 분들만 계속 진행합니다.`} />
-                <GuideCard title="입장은 순차적으로 열립니다" body={`${batchIntervalSeconds}초마다 최대 ${batchSize}명씩, 현재 작성 가능한 인원 범위 안에서 순서대로 입장합니다.`} />
+                <GuideCard title="입장은 연속으로 이어집니다" body={`동시 작성 가능 인원 ${maxActiveSessions}명을 기준으로 운영되며, 제출 또는 만료로 자리가 생기면 다음 순번이 즉시 입장합니다.`} />
                 <GuideCard title="작성 시간은 3분입니다" body="3분 안에 제출하지 않으면 세션이 만료되고, 다시 신청하려면 대기열에 다시 입장해야 합니다." />
               </div>
             </section>
 
-            {schoolConfig?.programImageUrl && (
-              <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-                <h2 className="text-lg font-bold text-gray-900">프로그램 안내</h2>
+            <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
+              <h2 className="text-lg font-bold text-gray-900">프로그램 안내</h2>
+              <p className="mt-4 whitespace-pre-line text-sm leading-relaxed text-gray-600">{programInfo}</p>
+              {schoolConfig?.programImageUrl && (
                 <button
                   onClick={() => setShowProgramImage(true)}
                   className="mt-4 flex w-full items-center justify-center rounded-2xl border border-gray-300 bg-white px-5 py-3 text-sm font-bold text-gray-700 transition hover:bg-gray-50"
                 >
                   프로그램 이미지 보기
                 </button>
-              </section>
-            )}
+              )}
+            </section>
+
           </div>
         </div>
 

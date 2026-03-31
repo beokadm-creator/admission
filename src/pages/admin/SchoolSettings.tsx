@@ -232,7 +232,7 @@ export default function SchoolSettings() {
       queueSettings: {
         enabled: true,
         batchSize: 1,
-        batchInterval: 10,
+        batchInterval: 1,
         maxActiveSessions: 60
       },
       formFields: {
@@ -270,8 +270,6 @@ export default function SchoolSettings() {
 
   const watchedRegularCapacity = watch('maxCapacity') || 0;
   const watchedWaitlistCapacity = watch('waitlistCapacity') || 0;
-  const watchedBatchSize = watch('queueSettings.batchSize') || 0;
-  const watchedBatchIntervalSeconds = watch('queueSettings.batchInterval') || 0;
   const watchedMaxActiveSessions = watch('queueSettings.maxActiveSessions') || 60;
   const watchedNhnAppKey = watch('alimtalkSettings.nhnAppKey') || '';
   const watchedNhnSecretKey = watch('alimtalkSettings.nhnSecretKey') || '';
@@ -312,10 +310,6 @@ export default function SchoolSettings() {
 
         const data = docSnap.data() as SchoolConfig;
         const heroMessage = data.heroMessage || data.parkingMessage || '';
-        const queueBatchIntervalSeconds = data.queueSettings?.batchInterval
-          ? Math.max(1, Math.round(data.queueSettings.batchInterval / 1000))
-          : 10;
-
         setValue('id', schoolId);
         setValue('name', data.name || '');
         setValue('logoUrl', data.logoUrl || '');
@@ -330,8 +324,8 @@ export default function SchoolSettings() {
         setValue('popupContent', data.popupContent || '');
         setValue('previewToken', data.previewToken || '');
         setValue('queueSettings.enabled', data.queueSettings?.enabled !== false);
-        setValue('queueSettings.batchSize', data.queueSettings?.batchSize || 1);
-        setValue('queueSettings.batchInterval', queueBatchIntervalSeconds);
+        setValue('queueSettings.batchSize', 1);
+        setValue('queueSettings.batchInterval', 1);
         setValue('queueSettings.maxActiveSessions', data.queueSettings?.maxActiveSessions || 60);
         setValue('formFields.collectEmail', !!data.formFields?.collectEmail);
         setValue('formFields.collectAddress', !!data.formFields?.collectAddress);
@@ -521,7 +515,6 @@ export default function SchoolSettings() {
     try {
       const heroCopy = data.heroMessage?.trim() || '';
       const programCopy = data.programInfo?.trim() || '';
-      const batchIntervalMs = Math.max(1000, (data.queueSettings?.batchInterval || 10) * 1000);
       const maxActiveSessions = Math.max(1, data.queueSettings?.maxActiveSessions || 60);
       const total = (data.maxCapacity || 0) + (data.waitlistCapacity || 0);
       const successTemplate =
@@ -542,8 +535,8 @@ export default function SchoolSettings() {
         previewToken: data.previewToken || '',
         queueSettings: {
           enabled: data.queueSettings?.enabled !== false,
-          batchSize: Math.max(1, data.queueSettings?.batchSize || 1),
-          batchInterval: batchIntervalMs,
+          batchSize: 1,
+          batchInterval: 1000,
           maxActiveSessions
         },
         formFields: {
@@ -727,7 +720,7 @@ export default function SchoolSettings() {
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <SummaryCard title="정규 신청 인원" value={`${watchedRegularCapacity.toLocaleString()}명`} />
                 <SummaryCard title="예비 접수 인원" value={`${watchedWaitlistCapacity.toLocaleString()}명`} />
-                <SummaryCard title="순차 입장 설정" value={`${watchedBatchSize.toLocaleString()}명 / ${watchedBatchIntervalSeconds}초`} />
+                <SummaryCard title="순차 입장 방식" value="빈자리 발생 시 다음 순번 즉시 입장" />
                 <SummaryCard title="총 관리 인원" value={`${totalManagedCapacity.toLocaleString()}명`} />
               </div>
             </div>
@@ -798,22 +791,6 @@ export default function SchoolSettings() {
                       className={inputClassName}
                     />
                   </Field>
-                  <Field label="한 번에 입장시킬 인원">
-                    <input
-                      {...register('queueSettings.batchSize', { required: true, valueAsNumber: true })}
-                      type="number"
-                      min={1}
-                      className={inputClassName}
-                    />
-                  </Field>
-                  <Field label="배치 간격(초)">
-                    <input
-                      {...register('queueSettings.batchInterval', { required: true, valueAsNumber: true })}
-                      type="number"
-                      min={1}
-                      className={inputClassName}
-                    />
-                  </Field>
                   <Field label="동시 작성 가능 인원">
                     <input
                       {...register('queueSettings.maxActiveSessions', { required: true, valueAsNumber: true })}
@@ -847,7 +824,7 @@ export default function SchoolSettings() {
                   <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
                     <p className="font-semibold text-gray-900">현재 운영 기준</p>
                     <p className="mt-2">동시 작성 인원: {watchedMaxActiveSessions.toLocaleString()}명</p>
-                    <p className="mt-1">순차 입장: {watchedBatchSize.toLocaleString()}명 / {watchedBatchIntervalSeconds}초</p>
+                    <p className="mt-1">순차 입장: 자리가 생기면 다음 순번이 즉시 입장</p>
                     <p className="mt-1">오픈 시간에는 모든 사용자에게 버튼이 동시에 열리고, 클릭 순서대로 번호가 부여됩니다.</p>
                   </div>
                 </div>

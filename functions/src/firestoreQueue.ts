@@ -183,17 +183,9 @@ function getMaxActiveSessions(schoolData: admin.firestore.DocumentData) {
   return Math.max(1, Number(schoolData.queueSettings?.maxActiveSessions || 60));
 }
 
-function getAdmissionWindowSize(schoolData: admin.firestore.DocumentData) {
-  return Math.max(1, Number(schoolData.queueSettings?.batchSize || 1));
-}
-
 function getQueueJoinLimit(schoolData: admin.firestore.DocumentData) {
   const { totalCapacity } = getTotalCapacity(schoolData);
   return Math.max(1, Math.ceil(totalCapacity * 1.5));
-}
-
-function getBatchIntervalMs(schoolData: admin.firestore.DocumentData) {
-  return Math.max(1000, Number(schoolData.queueSettings?.batchInterval || 10000));
 }
 
 function isQueueEnabled(schoolData: admin.firestore.DocumentData) {
@@ -271,12 +263,15 @@ function getAvailableWriterSlots(queueState: QueueStateDoc) {
   return Math.max(0, queueState.maxActiveSessions - queueState.activeReservationCount);
 }
 
-function getQueueAdvanceAmount(queueState: QueueStateDoc, admissionWindowSize: number, limit = 1) {
+function getQueueAdvanceAmount(queueState: QueueStateDoc, limit = Number.MAX_SAFE_INTEGER) {
   const waitingCount = Math.max(0, queueState.lastAssignedNumber - queueState.currentNumber);
-  const admissionHeadroom = Math.max(0, admissionWindowSize - queueState.pendingAdmissionCount);
+  const admissionHeadroom = Math.max(
+    0,
+    queueState.maxActiveSessions - queueState.activeReservationCount - queueState.pendingAdmissionCount
+  );
   return Math.max(
     0,
-    Math.min(waitingCount, queueState.availableCapacity, getAvailableWriterSlots(queueState), admissionHeadroom, limit)
+    Math.min(waitingCount, queueState.availableCapacity, admissionHeadroom, limit)
   );
 }
 
@@ -445,18 +440,13 @@ async function advanceQueueForSchool(
     }
 
     const queueState = buildQueueStateDoc(schoolData, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
-    const batchSize = getAdmissionWindowSize(schoolData);
-    const batchInterval = getBatchIntervalMs(schoolData);
     const waitingCount = Math.max(0, queueState.lastAssignedNumber - queueState.currentNumber);
 
     if (waitingCount <= 0 || queueState.availableCapacity <= 0 || getAvailableWriterSlots(queueState) <= 0) {
       return 0;
     }
-    if (queueState.lastAdvancedAt && now - queueState.lastAdvancedAt < batchInterval) {
-      return 0;
-    }
 
-    const advanceAmount = getQueueAdvanceAmount(queueState, batchSize, batchSize);
+    const advanceAmount = getQueueAdvanceAmount(queueState);
     if (advanceAmount <= 0) {
       return 0;
     }
@@ -580,7 +570,6 @@ async function cleanupStaleQueueEntriesForSchool(
   return db.runTransaction(async (transaction) => {
     const stateSnapshot = await transaction.get(stateRef);
     const queueState = buildQueueStateDoc(schoolData, stateSnapshot.exists ? (stateSnapshot.data() as QueueStateDoc) : null);
-    const admissionWindowSize = getAdmissionWindowSize(schoolData);
     let pendingAdmissionCount = queueState.pendingAdmissionCount;
     let expiredWaiting = 0;
     let expiredEligible = 0;
@@ -626,7 +615,7 @@ async function cleanupStaleQueueEntriesForSchool(
       pendingAdmissionCount,
       updatedAt: now
     };
-    const nextAdvance = getQueueAdvanceAmount(nextState, admissionWindowSize, expiredEligible);
+    const nextAdvance = getQueueAdvanceAmount(nextState, expiredEligible);
     const promotionDocs = nextAdvance > 0
       ? await loadEntriesForPromotion(transaction, db, schoolId, nextState.currentNumber, nextAdvance)
       : [];
@@ -727,7 +716,6 @@ async function expireReservationDocument(
 
     const schoolData = schoolSnapshot.data()!;
     const queueState = buildQueueStateDoc(schoolData, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
-    const admissionWindowSize = getAdmissionWindowSize(schoolData);
     const activeReservationCount = Math.max(0, queueState.activeReservationCount - 1);
     const nextState = {
       ...queueState,
@@ -735,7 +723,7 @@ async function expireReservationDocument(
       availableCapacity: Math.max(0, queueState.totalCapacity - queueState.confirmedCount - queueState.waitlistedCount - activeReservationCount),
       updatedAt: now
     };
-    const nextAdvance = getQueueAdvanceAmount(nextState, admissionWindowSize, 1);
+    const nextAdvance = getQueueAdvanceAmount(nextState, 1);
     const promotionDocs = nextAdvance > 0
       ? await loadEntriesForPromotion(transaction, db, schoolId, nextState.currentNumber, nextAdvance)
       : [];
@@ -1047,7 +1035,6 @@ export const startRegistrationSession = functionsV1.https.onCall(async (request:
     }
 
     const queueState = buildQueueStateDoc(schoolData, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
-    const admissionWindowSize = getAdmissionWindowSize(schoolData);
     if (queueState.availableCapacity <= 0) {
       throw new functions.https.HttpsError('resource-exhausted', '?꾩옱 ?댁슜 媛?ν븳 ?좎껌 ?몄썝???놁뒿?덈떎.');
     }
@@ -1081,7 +1068,7 @@ export const startRegistrationSession = functionsV1.https.onCall(async (request:
       availableCapacity: Math.max(0, queueState.availableCapacity - 1),
       updatedAt: now
     };
-    const nextAdvance = getQueueAdvanceAmount(nextState, admissionWindowSize, 1);
+    const nextAdvance = getQueueAdvanceAmount(nextState, 1);
     const promotionDocs = nextAdvance > 0
       ? await loadEntriesForPromotion(transaction, db, schoolId, nextState.currentNumber, nextAdvance)
       : [];
@@ -1371,7 +1358,6 @@ export const confirmReservation = functionsV1.https.onCall(async (request: any, 
     }
 
     const schoolData = schoolSnapshot.data()!;
-    const admissionWindowSize = getAdmissionWindowSize(schoolData);
     const { maxCapacity, waitlistCapacity } = getTotalCapacity(schoolData);
     const queueState = buildQueueStateDoc(schoolData, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
 
@@ -1402,7 +1388,7 @@ export const confirmReservation = functionsV1.https.onCall(async (request: any, 
       ),
       updatedAt: now
     };
-    const nextAdvance = getQueueAdvanceAmount(nextState, admissionWindowSize, 1);
+    const nextAdvance = getQueueAdvanceAmount(nextState, 1);
     const promotionDocs = nextAdvance > 0
       ? await loadEntriesForPromotion(transaction, db, schoolId, nextState.currentNumber, nextAdvance)
       : [];
@@ -1515,8 +1501,6 @@ export const autoAdvanceQueue = functionsV1.pubsub
         continue;
       }
 
-      const batchSize = getAdmissionWindowSize(schoolData);
-      const batchInterval = Number(schoolData.queueSettings?.batchInterval || 60000);
       const stateRef = queueStateRef(db, schoolId);
 
       const advanced = await db.runTransaction(async (transaction) => {
@@ -1528,11 +1512,7 @@ export const autoAdvanceQueue = functionsV1.pubsub
         if (waitingCount <= 0 || queueState.availableCapacity <= 0 || getAvailableWriterSlots(queueState) <= 0) {
           return 0;
         }
-        if (queueState.lastAdvancedAt && nowMs - queueState.lastAdvancedAt < batchInterval) {
-          return 0;
-        }
-
-        const advanceAmount = getQueueAdvanceAmount(queueState, batchSize, batchSize);
+        const advanceAmount = getQueueAdvanceAmount(queueState);
         if (advanceAmount <= 0) {
           return 0;
         }
