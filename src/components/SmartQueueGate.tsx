@@ -125,6 +125,7 @@ export default function SmartQueueGate() {
   const countdownLabel = formatCountdown(Math.max(0, openTimeMs - now));
   const detailedCountdownLabel = formatDetailedCountdown(Math.max(0, openTimeMs - now));
   const countdownParts = getCountdownParts(Math.max(0, openTimeMs - now));
+  const gateHeadline = '2028학년도 서울대학교 입학전형의 안정적 준비를 위한 학부모 교육 프로그램';
   const programInfo =
     schoolConfig?.programInfo?.trim() ||
     '행사 개요, 준비물, 유의사항은 이 영역에서 함께 확인할 수 있습니다.';
@@ -344,7 +345,7 @@ export default function SmartQueueGate() {
 
   const myStatusMessage = useMemo(() => {
     if (!isOpen) {
-      return '오픈 시간이 되면 모든 사용자에게 버튼이 동시에 열리고, 클릭 즉시 서버가 대기번호를 발급합니다.';
+      return `현재는 ${selectedRound?.label || '선택한 차수'} 오픈 전입니다. 카드에서 오픈 시각과 접수 상태를 먼저 확인해 주세요.`;
     }
 
     if (myEntry?.status === 'expired') {
@@ -548,6 +549,9 @@ export default function SmartQueueGate() {
                   <div>
                     <p className="text-xs font-bold uppercase tracking-[0.3em] text-white/70">QUEUE ACCESS</p>
                     <h1 className="mt-2 text-2xl font-bold leading-tight sm:text-4xl">{schoolConfig?.name || '행사 신청 대기열'}</h1>
+                    <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/85 sm:text-base">
+                      {gateHeadline}
+                    </p>
                   </div>
                 </div>
                 <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -589,8 +593,7 @@ export default function SmartQueueGate() {
               </div>
 
               <div className="rounded-3xl border border-white/15 bg-white/10 p-5 backdrop-blur-sm sm:p-6">
-                <p className="text-sm font-semibold text-white/75">오픈 카운트다운</p>
-                <p className="mt-3 text-xl font-bold leading-tight sm:text-3xl">
+                <p className="text-xl font-bold leading-tight sm:text-3xl">
                   {remainingCapacity <= 0 || queueLimitReached ? `${selectedRound?.label || '해당 차수'} 마감` : isOpen ? `${selectedRound?.label || '해당 차수'} 순차 입장 진행 중` : `${selectedRound?.label || '해당 차수'} 오픈 대기 중`}
                 </p>
                 <p className="mt-2 text-sm text-white/80">{openDateLabel}</p>
