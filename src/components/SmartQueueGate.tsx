@@ -63,6 +63,30 @@ function formatCountdown(ms: number) {
   return [hours, minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':');
 }
 
+function formatDetailedCountdown(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${days}d ${hours}h ${minutes}m ${seconds}s`;
+}
+
+function getCountdownParts(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  return [
+    { label: 'DAY', value: String(days).padStart(2, '0') },
+    { label: 'HOUR', value: String(hours).padStart(2, '0') },
+    { label: 'MIN', value: String(minutes).padStart(2, '0') },
+    { label: 'SEC', value: String(seconds).padStart(2, '0') }
+  ];
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
@@ -112,10 +136,9 @@ export default function SmartQueueGate() {
   const isOpen = !!openTimeMs && now >= openTimeMs;
   const openDateLabel = formatDateLabel(openTimeMs);
   const countdownLabel = formatCountdown(Math.max(0, openTimeMs - now));
-  const heroMessage =
-    schoolConfig?.heroMessage?.trim() ||
-    schoolConfig?.parkingMessage?.trim() ||
-    '오픈 시간이 되면 모든 사용자에게 버튼이 동시에 열리고, 클릭 순서대로 공식 대기번호가 발급됩니다.';
+  const detailedCountdownLabel = formatDetailedCountdown(Math.max(0, openTimeMs - now));
+  const currentKstLabel = formatKstTimeLabel(now);
+  const countdownParts = getCountdownParts(Math.max(0, openTimeMs - now));
   const programInfo =
     schoolConfig?.programInfo?.trim() ||
     '행사 개요, 준비물, 유의사항은 이 영역에서 함께 확인할 수 있습니다.';
@@ -246,6 +269,20 @@ export default function SmartQueueGate() {
   const queueJoinLimit = Math.max(1, Math.ceil(getAdmissionRoundTotal(selectedRound) * 1.5));
   const queueLimitReached = !myEntry && queueState.lastAssignedNumber >= queueJoinLimit;
   const dataConfidenceLabel = queueStateFromCache || entryFromCache ? '캐시 기준' : '실시간 반영';
+  const selectedRoundStatusLabel = !isOpen
+    ? '오픈 대기'
+    : remainingCapacity <= 0 || queueLimitReached
+      ? '접수 마감'
+      : '접수 진행 중';
+  const waitingDisplayValue = myNumber === null ? '-' : waitingAhead.toLocaleString();
+  const waitingDisplayHelper =
+    myNumber === null
+      ? '대기번호를 받으면 앞 대기 인원이 표시됩니다'
+      : waitingAhead > 0
+        ? `예상 ${estimatedWaitMinutes}분`
+        : canEnter
+          ? '지금 입장 가능'
+          : '곧 입장 예정';
   const joinDisabledReason =
     !myEntry || myEntry.status === 'expired'
       ? !isOpen
@@ -256,6 +293,13 @@ export default function SmartQueueGate() {
             ? `대기 접수 상한 ${queueJoinLimit.toLocaleString()}명(정규+예비의 1.5배)에 도달해 버튼이 비활성화되었습니다. 이미 번호를 받은 분들만 계속 진행할 수 있습니다.`
             : null
       : null;
+  const buttonStatusMessage = canEnter
+    ? '지금 입장 가능한 상태입니다. 3분 안에 제출하지 않으면 세션이 만료됩니다.'
+    : myEntry?.status === 'expired'
+      ? '이전 작성 기회가 종료되었습니다. 다시 대기열에 입장하면 새 번호가 발급됩니다.'
+      : queueLimitReached
+        ? `대기 접수 상한 ${queueJoinLimit.toLocaleString()}명에 도달해 버튼이 비활성화되었습니다. 이미 번호를 받은 분들만 계속 진행할 수 있습니다.`
+        : joinDisabledReason || '오픈 시간에 나타나는 버튼을 누르면 대기번호가 발급됩니다.';
 
   useEffect(() => {
     if (!canEnter || !isOpen || !schoolId || loading || autoStartedRef.current) return;
@@ -518,9 +562,6 @@ export default function SmartQueueGate() {
                     <h1 className="mt-2 text-3xl font-bold sm:text-4xl">{schoolConfig?.name || '행사 신청 대기열'}</h1>
                   </div>
                 </div>
-                <p className="mt-4 max-w-3xl text-sm leading-relaxed text-white/90">
-                  {heroMessage}
-                </p>
                 <div className="mt-6 grid gap-3 sm:grid-cols-2">
                   {rounds.map((round) => {
                     const roundOpenTime = round.openDateTime ? new Date(round.openDateTime).getTime() : 0;
@@ -533,32 +574,29 @@ export default function SmartQueueGate() {
                         onClick={() => setSelectedRoundId(round.id)}
                         className={`rounded-2xl border px-4 py-4 text-left transition ${
                           isSelected
-                            ? 'border-white bg-white text-snu-blue shadow-lg'
-                            : 'border-white/15 bg-white/10 text-white hover:bg-white/15'
+                            ? round.id === 'round1'
+                              ? 'border-[#bfdbfe] bg-[#eff6ff] text-[#1d4ed8] shadow-lg'
+                              : 'border-[#fecdd3] bg-[#fff1f2] text-[#be123c] shadow-lg'
+                            : round.id === 'round1'
+                              ? 'border-[#93c5fd]/40 bg-[#1d4ed8]/15 text-white hover:bg-[#1d4ed8]/25'
+                              : 'border-[#fda4af]/40 bg-[#be123c]/15 text-white hover:bg-[#be123c]/25'
                         }`}
                       >
                         <p className={`text-xs font-semibold uppercase tracking-[0.2em] ${isSelected ? 'text-snu-blue/70' : 'text-white/60'}`}>{round.label}</p>
                         <p className="mt-2 text-base font-bold">{formatDateLabel(roundOpenTime)}</p>
-                        <p className={`mt-2 text-xs ${isSelected ? 'text-snu-blue/70' : 'text-white/75'}`}>
-                          {roundIsOpen ? '현재 버튼이 열려 있습니다' : `오픈까지 ${formatCountdown(Math.max(0, roundOpenTime - now))}`}
+                    <p className={`mt-2 text-xs ${isSelected ? 'text-snu-blue/70' : 'text-white/75'}`}>
+                          {isSelected
+                            ? (roundIsOpen
+                                ? (remainingCapacity <= 0 || queueLimitReached ? '현재 접수는 마감되었습니다' : '현재 버튼이 열려 있습니다')
+                                : `오픈까지 ${formatCountdown(Math.max(0, roundOpenTime - now))}`)
+                            : (roundIsOpen ? '선택하면 현재 상태를 확인할 수 있습니다' : `오픈까지 ${formatCountdown(Math.max(0, roundOpenTime - now))}`)}
+                        </p>
+                        <p className={`mt-2 text-[11px] font-semibold ${isSelected ? 'text-snu-blue/80' : 'text-white/70'}`}>
+                          {isSelected ? selectedRoundStatusLabel : (roundIsOpen ? '선택 가능' : '오픈 전')}
                         </p>
                       </button>
                     );
                   })}
-                </div>
-                <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">오픈 시간</p>
-                    <p className="mt-2 text-xs font-semibold uppercase tracking-[0.2em] text-white/70">{selectedRound?.label || '1차'}</p>
-                    <p className="mt-1 text-lg font-bold">{openDateLabel}</p>
-                    <p className="mt-2 text-xs text-white/75">{isOpen ? '현재 접수 진행 중' : `오픈까지 ${countdownLabel}`}</p>
-                  </div>
-                  <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">운영 기준</p>
-                    <p className="mt-2 text-sm">동시 작성 {maxActiveSessions}명</p>
-                    <p className="mt-1 text-sm">빈자리가 생기면 다음 순번 즉시 입장</p>
-                    <p className="mt-1 text-sm">작성 시간 3분</p>
-                  </div>
                 </div>
               </div>
 
@@ -576,9 +614,33 @@ export default function SmartQueueGate() {
                       ? '현재 작성 가능한 자리가 모두 사용 중이며, 제출 또는 만료가 발생하면 다음 순번이 열립니다.'
                       : '대기번호 순서에 따라 차례대로 입장 기회가 열립니다.'}
                 </p>
-                <p className="mt-4 text-xs text-white/70">
-                  기준 시각(KST): {formatKstTimeLabel(queueState.updatedAt)} · {dataConfidenceLabel}
-                </p>
+                <div className="mt-5 rounded-2xl border border-white/15 bg-black/10 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/60">Open Countdown</p>
+                      <p className="mt-1 text-sm font-semibold text-white">{detailedCountdownLabel}</p>
+                    </div>
+                    <div className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-semibold text-white/80">
+                      KST {currentKstLabel}
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-4 gap-2">
+                    {countdownParts.map((part) => (
+                      <div key={part.label} className="rounded-2xl border border-white/10 bg-white/10 px-3 py-4 text-center shadow-inner">
+                        <p className="text-2xl font-bold tracking-[0.08em] text-white sm:text-3xl">{part.value}</p>
+                        <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-white/60">{part.label}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2 text-[11px] text-white/70">
+                    <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1">
+                      서버 반영 {formatKstTimeLabel(queueState.updatedAt)}
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1">
+                      {dataConfidenceLabel}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -613,17 +675,21 @@ export default function SmartQueueGate() {
 
         <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
           <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-            <div className="flex items-start justify-between gap-4">
-              <div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="rounded-2xl border border-snu-blue/10 bg-snu-blue/[0.03] p-5">
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-500">MY STATUS</p>
                 <p className="mt-3 text-5xl font-bold tracking-tight text-snu-blue">{myNumber ?? '--'}</p>
-                <p className="mt-4 text-sm leading-relaxed text-gray-600">{myStatusMessage}</p>
+                <p className="mt-2 text-xs text-gray-500">내 대기번호</p>
               </div>
-              <div className="min-w-[120px] rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-right">
+              <div className="rounded-2xl border border-gray-100 bg-gray-50 p-5 text-right">
                 <p className="text-xs font-bold uppercase tracking-[0.1em] text-gray-400">WAITING</p>
-                <p className="mt-2 text-3xl font-bold text-gray-900">{waitingAhead}</p>
-                <p className="mt-1 text-xs text-gray-400">예상 {estimatedWaitMinutes}분</p>
+                <p className="mt-2 text-3xl font-bold text-gray-900">{waitingDisplayValue}</p>
+                <p className="mt-2 text-xs text-gray-500">{waitingDisplayHelper}</p>
               </div>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-gray-100 bg-white p-4 text-sm leading-relaxed text-gray-600">
+              {myStatusMessage}
             </div>
 
             <div className="mt-6 grid gap-3">
@@ -666,50 +732,22 @@ export default function SmartQueueGate() {
               )}
             </div>
 
-              <div className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm leading-relaxed text-gray-600">
-              {canEnter
-                ? '입장 가능한 상태입니다. 3분 안에 제출하지 않으면 세션이 만료되며, 다시 신청하려면 대기열에 다시 입장해야 합니다.'
-                : myEntry?.status === 'expired'
-                  ? '이전 작성 기회가 종료되었습니다. 다시 대기열에 입장하면 새 번호가 발급됩니다.'
-                  : queueLimitReached
-                    ? `대기 접수 상한 ${queueJoinLimit.toLocaleString()}명에 도달해 버튼이 비활성화되었습니다. 이미 번호를 받은 분들만 계속 진행할 수 있습니다.`
-                    : '대기 화면을 유지하면 내 번호와 현재 입장 번호가 실시간으로 갱신됩니다. 화면을 1분 이상 닫아 두면 대기열에서 제외될 수 있습니다.'}
+            <div className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm leading-relaxed text-gray-600">
+              <p>{buttonStatusMessage}</p>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-4">
+              <p className="text-sm font-bold text-gray-900">이용 안내</p>
+              <div className="mt-3 space-y-2 text-sm leading-relaxed text-gray-600">
+                <p>접수는 {openDateLabel}에 시작됩니다. 오픈 전에는 버튼이 비활성화됩니다.</p>
+                <p>오픈 시간에 나타나는 버튼을 누르면 대기번호가 발급됩니다.</p>
+                <p>대기 접수는 상한 {queueJoinLimit.toLocaleString()}명(정규+예비의 1.5배)에서 마감됩니다.</p>
+                <p>1차에서 신청하지 못한 경우 2차 오픈 시각에 다시 대기열에 입장할 수 있습니다.</p>
+                <p>상단에는 KST 기준 현재 시각, 오픈까지 남은 시간, 서버 반영 시각이 표시됩니다.</p>
               </div>
+            </div>
 
-            {joinDisabledReason && (
-              <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900">
-                {joinDisabledReason}
-              </p>
-            )}
-
-            {errorMessage && <p className="mt-4 text-sm font-semibold text-rose-600">{errorMessage}</p>}
-          </section>
-
-          <div className="space-y-6">
-            <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-bold text-gray-900">운영 현황</h2>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <InfoTile label="현재 대기 인원" value={waitingCount} helper="번호를 받았지만 아직 작성 중이 아닌 인원" />
-                <InfoTile label="남은 확정 접수" value={remainingRegular} helper="확정으로 접수 가능한 잔여 인원" />
-                <InfoTile label="남은 예비 접수" value={remainingWaitlist} helper="예비 접수로 안내될 수 있는 잔여 인원" />
-                <InfoTile label="작성 중 / 기준" value={`${queueState.activeReservationCount} / ${maxActiveSessions}`} helper="동시에 작성 가능한 인원 기준" />
-              </div>
-            </section>
-
-            <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-bold text-gray-900">이용 안내</h2>
-              <div className="mt-4 space-y-3 text-sm leading-relaxed text-gray-600">
-                <GuideCard title="대기번호는 즉시 발급됩니다" body="버튼 클릭 시 서버가 즉시 번호를 발급하며, 같은 번호가 화면에 바로 표시됩니다." />
-                <GuideCard title="오픈 시간 동시 오픈" body="1차와 2차는 각각 설정된 오픈 시각(KST)에 열리며, 해당 차수 안에서 클릭 순서대로 번호가 부여됩니다." />
-                <GuideCard title="대기 접수는 상한에서 마감됩니다" body={`대기번호 발급은 ${queueJoinLimit.toLocaleString()}명(정규+예비의 1.5배)까지만 열리며, 상한 도달 시 새 번호 발급이 종료됩니다.`} />
-                <GuideCard title="입장은 연속으로 이어집니다" body={`동시 작성 가능 인원 ${maxActiveSessions}명을 유지하며, 제출/만료로 자리가 생기면 다음 순번이 즉시 입장합니다.`} />
-                <GuideCard title="작성 시간은 3분입니다" body="입장 후 3분 안에 제출하지 않으면 세션이 만료되고, 다시 대기열에서 새 번호를 받아야 합니다." />
-                <GuideCard title="실시간 정보 기준" body="상단에 KST 기준 시각과 실시간/캐시 상태가 표시됩니다. 캐시 기준일 때는 최신 반영까지 수초 지연될 수 있습니다." />
-                <GuideCard title="2차 모집 안내" body="1차에서 신청하지 못한 경우 2차 오픈 시각에 다시 대기열에 입장해 새 번호를 받을 수 있습니다." />
-              </div>
-            </section>
-
-            <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
+            <section className="mt-4 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
               <h2 className="text-lg font-bold text-gray-900">프로그램 안내</h2>
               <p className="mt-4 whitespace-pre-line text-sm leading-relaxed text-gray-600">{programInfo}</p>
               {schoolConfig?.programImageUrl && (
@@ -720,6 +758,56 @@ export default function SmartQueueGate() {
                   프로그램 이미지 보기
                 </button>
               )}
+            </section>
+
+            {errorMessage && <p className="mt-4 text-sm font-semibold text-rose-600">{errorMessage}</p>}
+          </section>
+
+          <div className="space-y-6">
+            <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
+              <h2 className="text-lg font-bold text-gray-900">운영 현황</h2>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <InfoTile label="현재 대기 인원" value={waitingCount} helper="번호를 받았지만 아직 작성 중이 아닌 인원" />
+                <InfoTile label="남은 확정 접수" value={remainingRegular} helper="확정으로 접수 가능한 잔여 인원" />
+                <InfoTile label="남은 예비 접수" value={remainingWaitlist} helper="예비는 확정이 아니며, 결원 발생 시 별도 연락 대상입니다" />
+                <InfoTile label="작성 중 / 기준" value={`${queueState.activeReservationCount} / ${maxActiveSessions}`} helper="동시에 작성 가능한 인원 기준" />
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
+              <h2 className="text-lg font-bold text-gray-900">진행 흐름</h2>
+              <div className="mt-4 space-y-3">
+                <FlowCard
+                  tone="blue"
+                  step="1"
+                  title="차수 선택"
+                  body="1차 또는 2차 버튼을 눌러 해당 차수의 오픈 시간과 접수 상태를 확인합니다."
+                />
+                <FlowCard
+                  tone="indigo"
+                  step="2"
+                  title="버튼 오픈 후 대기번호 발급"
+                  body="오픈 시간에 나타나는 버튼을 누르면 대기번호가 발급됩니다."
+                />
+                <FlowCard
+                  tone="amber"
+                  step="3"
+                  title="순차 입장"
+                  body={`동시 작성 가능 인원 ${maxActiveSessions}명을 유지하며, 제출 또는 만료로 자리가 생기면 다음 순번이 입장합니다.`}
+                />
+                <FlowCard
+                  tone="emerald"
+                  step="4"
+                  title="3분 안에 작성"
+                  body="입장 후 3분 안에 제출해야 하며, 시간이 지나면 세션이 만료되고 다시 대기열에 입장해야 합니다."
+                />
+                <FlowCard
+                  tone="rose"
+                  step="5"
+                  title="확정 / 예비 안내"
+                  body="예비 접수는 확정 참가가 아니며, 확정 등록 인원에서 결원이 발생한 경우에만 별도 연락을 드립니다."
+                />
+              </div>
             </section>
 
             <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -795,11 +883,30 @@ function InfoTile({
   );
 }
 
-function GuideCard({ title, body }: { title: string; body: string }) {
+function FlowCard({
+  step,
+  title,
+  body,
+  tone
+}: {
+  step: string;
+  title: string;
+  body: string;
+  tone: 'blue' | 'indigo' | 'amber' | 'emerald' | 'rose';
+}) {
+  const toneClasses = {
+    blue: 'border-blue-200 bg-blue-50 text-blue-900',
+    indigo: 'border-indigo-200 bg-indigo-50 text-indigo-900',
+    amber: 'border-amber-200 bg-amber-50 text-amber-900',
+    emerald: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+    rose: 'border-rose-200 bg-rose-50 text-rose-900'
+  };
+
   return (
-    <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
-      <p className="font-bold text-gray-900">{title}</p>
-      <p className="mt-2 text-xs leading-relaxed text-gray-500">{body}</p>
+    <div className={`rounded-2xl border p-4 ${toneClasses[tone]}`}>
+      <p className="text-xs font-bold uppercase tracking-[0.2em] opacity-70">STEP {step}</p>
+      <p className="mt-2 font-bold">{title}</p>
+      <p className="mt-2 text-xs leading-relaxed opacity-80">{body}</p>
     </div>
   );
 }
