@@ -598,7 +598,7 @@ export default function SmartQueueGate() {
                 </p>
                 <p className="mt-2 text-sm text-white/80">{openDateLabel}</p>
                 <div className="mt-5 rounded-2xl border border-white/15 bg-black/10 p-4">
-                  <p className="text-sm font-semibold text-white/85">{detailedCountdownLabel}</p>
+
                   <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {countdownParts.map((part) => (
                       <div key={part.label} className="rounded-2xl border border-white/10 bg-white/10 px-3 py-3 text-center sm:py-4">
@@ -740,34 +740,28 @@ export default function SmartQueueGate() {
               <h2 className="text-lg font-bold text-gray-900">진행 흐름</h2>
               <div className="mt-4 space-y-3">
                 <FlowCard
-                  tone="blue"
-                  step="1"
-                  title="차수 선택"
-                  body="1차 또는 2차 버튼을 눌러 해당 차수의 오픈 시간과 접수 상태를 확인합니다."
-                />
-                <FlowCard
                   tone="indigo"
-                  step="2"
+                  step="1"
                   title="버튼 오픈 후 대기번호 발급"
-                  body="오픈 시간에 나타나는 버튼을 누르면 대기번호가 발급됩니다."
+                  body="오픈 시각에 활성화되는 버튼을 누르시면 공식 대기번호를 발급받게 됩니다."
                 />
                 <FlowCard
                   tone="amber"
-                  step="3"
+                  step="2"
                   title="순차 입장"
-                  body={`동시 작성 가능 인원 ${maxActiveSessions}명을 유지하며, 제출 또는 만료로 자리가 생기면 다음 순번이 입장합니다.`}
+                  body={`동시 작성 가능 인원 ${maxActiveSessions}명을 유지하며, 제출 또는 만료로 자리가 생기면 다음 순번이 자동으로 열립니다.`}
                 />
                 <FlowCard
                   tone="emerald"
-                  step="4"
-                  title="3분 안에 작성"
-                  body="입장 후 3분 안에 제출해야 하며, 시간이 지나면 세션이 만료되고 다시 대기열에 입장해야 합니다."
+                  step="3"
+                  title="3분 안에 입력 완료"
+                  body="입장 후 3분 안에 제출하셔야 하며, 기한 시 세션이 만료되고 다시 대기열에 입장하셔야 합니다."
                 />
                 <FlowCard
                   tone="rose"
-                  step="5"
-                  title="확정 / 예비 안내"
-                  body="예비 접수는 확정 참가가 아니며, 확정 등록 인원에서 결원이 발생한 경우에만 별도 연락을 드립니다."
+                  step="4"
+                  title="확정 / 예비 결과 배정"
+                  body="제출 순서가 아닌 대기번호 순서에 따라 확정 또는 예비 결과가 배정됩니다. 예비 번호는 결원 발생 시 개별 연락을 드립니다."
                 />
               </div>
             </section>
@@ -859,8 +853,8 @@ function MetricCard({
         {icon}
         <p className="text-sm font-bold text-gray-900">{label}</p>
       </div>
-      <p className="mt-3 text-2xl font-bold text-gray-900 sm:mt-4 sm:text-3xl">{value.toLocaleString()}</p>
-      <p className="mt-2 text-xs leading-relaxed text-gray-500">{helper}</p>
+      <p className="mt-3 text-3xl font-bold text-gray-900 sm:mt-4 sm:text-4xl">{value.toLocaleString()}</p>
+      <p className="mt-2 text-base leading-relaxed text-gray-500">{helper}</p>
     </div>
   );
 }
@@ -877,8 +871,8 @@ function InfoTile({
   return (
     <div className="rounded-2xl border border-gray-100 bg-gray-50 p-3.5 sm:p-4">
       <p className="text-xs font-bold uppercase tracking-[0.15em] text-gray-400">{label}</p>
-      <p className="mt-2 text-xl font-bold text-gray-900 sm:text-2xl">{value}</p>
-      <p className="mt-2 text-xs leading-relaxed text-gray-500">{helper}</p>
+      <p className="mt-2 text-2xl font-bold text-gray-900 sm:text-3xl">{value}</p>
+      <p className="mt-2 text-base leading-relaxed text-gray-500">{helper}</p>
     </div>
   );
 }
@@ -903,10 +897,10 @@ function FlowCard({
   };
 
   return (
-    <div className={`rounded-2xl border p-4 ${toneClasses[tone]}`}>
-      <p className="text-xs font-bold uppercase tracking-[0.2em] opacity-70">STEP {step}</p>
-      <p className="mt-2 font-bold">{title}</p>
-      <p className="mt-2 text-xs leading-relaxed opacity-80">{body}</p>
+    <div className={`rounded-2xl border p-5 ${toneClasses[tone]}`}>
+      <p className="text-[11px] font-bold uppercase tracking-[0.2em] opacity-70">STEP {step}</p>
+      <h4 className="mt-3 text-lg font-bold">{title}</h4>
+      <p className="mt-2 text-base leading-relaxed opacity-80">{body}</p>
     </div>
   );
 }

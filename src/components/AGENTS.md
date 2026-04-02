@@ -1,38 +1,44 @@
-# REUSABLE COMPONENTS
+---
+title: Components Agent Guide
+doc-role: canonical
+status: active
+precedence: 84
+memory-type: domain-guide
+token-estimate: 500
+required-for:
+  - shared component changes
+optional-for:
+  - functions-only work
+---
 
-**Purpose:** Shared UI components used across school and admin domains
+@include [docs/standards/shared-rules.md#global]
+@include [docs/standards/shared-rules.md#agent-guides]
 
-## OVERVIEW
-Five reusable components for route protection, queue management, registration display, and modal popups.
+# Components Agent Guide
 
-## WHERE TO LOOK
-| Component | File | Purpose |
-|-----------|------|---------|
-| Auth route guard | `AdminRoute.tsx` | Protects admin routes, checks MASTER/SCHOOL roles |
-| Empty state | `Empty.tsx` | Consistent empty/placeholder UI |
-| Queue management | `QueueController.tsx` | Live queue position display with auto-refresh |
-| Registration list | `RegistrationList.tsx` | Table view of registrations with filters |
-| Modal popup | `SchoolPopup.tsx` | School-configurable popup for announcements |
+## Essential (Post-Compact)
 
-## CONVENTIONS
-**Component Patterns:**
-- Functional components with TypeScript interfaces for props
-- Tailwind CSS for styling (uses `cn()` utility from `src/lib/utils.ts`)
-- Props interfaces defined inline or in `src/types/models.ts`
-- No component-level state management (use Context or lift state)
+- 공용 컴포넌트는 도메인 특수 로직보다 재사용성과 명확한 props를 우선한다.
+- 공개 신청 진입 UI는 `SmartQueueGate.tsx`가 핵심이다.
+- 관리자 보호는 `AdminRoute.tsx`에서 처리한다.
+- 공용 컴포넌트 안에서 직접 데이터 저장소를 쿼리하지 않는다.
 
-**Styling:**
-- Consistent use of Tailwind spacing and color utilities
-- Responsive design with mobile-first approach
-- Accessible button and form elements (add explicit type props)
+<!-- STATIC:START -->
+## Key Files
 
-**Composition:**
-- Components are domain-agnostic (no school/admin logic)
-- Receive data via props, not direct Firestore queries
-- Emit events via callback props (onClick, onSubmit, etc.)
+- `AdminRoute.tsx`: 관리자 접근 보호
+- `Empty.tsx`: 공통 빈 상태
+- `RegistrationList.tsx`: 관리자 신청 목록 테이블
+- `SchoolPopup.tsx`: 학교별 공지 팝업
+- `SmartQueueGate.tsx`: 공개 신청 진입, 대기열, 상태 안내
+<!-- STATIC:END -->
 
-## ANTI-PATTERNS
-- Embedding Firestore queries in components (prefer context/service layer)
-- Domain logic in reusable components (keep pure UI)
-- Missing prop TypeScript interfaces
-- Inconsistent styling patterns
+<!-- DYNAMIC:START -->
+## Dynamic Notes
+
+- 문서상의 `QueueController`는 현재 코드에 없으며 `SmartQueueGate`가 해당 역할을 확장해서 담당한다.
+<!-- DYNAMIC:END -->
+
+## Changelog
+
+- 2026-04-02: 실제 컴포넌트 목록에 맞게 갱신하고 오래된 항목 제거.

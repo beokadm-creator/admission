@@ -1,55 +1,54 @@
-# FIREBASE CLOUD FUNCTIONS BACKEND
+---
+title: Functions Agent Guide
+doc-role: canonical
+status: active
+precedence: 85
+memory-type: domain-guide
+token-estimate: 700
+required-for:
+  - backend changes
+  - queue callable updates
+optional-for:
+  - frontend-only work
+---
 
-**Purpose:** Firestore triggers and NHN Cloud AlimTalk integration
+@include [docs/standards/shared-rules.md#global]
+@include [docs/standards/shared-rules.md#agent-guides]
 
-## OVERVIEW
-Firebase Functions backend handling registration lifecycle events (onCreate, onUpdate) and sending AlimTalk notifications via NHN Cloud API v1.5.
+# Functions Agent Guide
 
-## WHERE TO LOOK
-| Task | Function/Location | Notes |
-|------|-------------------|-------|
-| Registration creation trigger | `onRegistrationCreate` in `index.ts` | Sends success/waitlist AlimTalk |
-| Status update trigger | `onRegistrationUpdate` in `index.ts` | Sends promote AlimTalk (waitlist→confirmed) |
-| AlimTalk API integration | `sendAlimTalk()` helper | NHN Cloud API v1.5 HTTP POST |
-| Firebase config | `functions.config().nhn.*` | appkey, secretkey, sender_key |
+## Essential (Post-Compact)
 
-## CONVENTIONS
-**Firebase Functions Patterns:**
-- Firestore triggers: `document('schools/{schoolId}/registrations/{registrationId}')`
-- Async/await for all Firestore operations and HTTP requests
-- Early return on error conditions (no SMS consent, missing config)
-- Console logging for debugging (success and error cases)
+- 큐 핵심 로직은 `functions/src/firestoreQueue.ts`가 우선이다.
+- `functions/src/index.ts`는 export, 조회/취소, 알림 보조 로직을 가진다.
+- AlimTalk 자격 증명은 Firebase config와 `schools/{schoolId}/privateSettings/alimtalk`를 함께 본다.
+- 백엔드 변경 시 권한, idempotency, rate limit, graceful degradation을 함께 검토한다.
 
-**AlimTalk Integration:**
-- Templates configured per-school in `schoolConfig.alimtalkSettings`
-- Three template codes: successTemplate, waitlistTemplate, promoteTemplate
-- Template parameters: studentName, schoolName, rank (for waitlist)
-- HTTP POST to `https://api-alimtalk.cloud.toast.com/alimtalk/v1.5/appkeys/{appKey}/messages`
+<!-- STATIC:START -->
+## Where To Look
 
-**Environment Variables:**
-```bash
-firebase functions:config:set nhn.appkey="..." nhn.secretkey="..." nhn.sender_key="..."
-```
-Access via: `functions.config().nhn.appkey`
+- 큐 입장: `joinQueue`
+- 작성 시작: `startRegistrationSession`
+- 제출 확정: `confirmReservation`
+- 세션 만료: `forceExpireSession`, `cleanupExpiredReservations`
+- 운영 보조: `autoAdvanceQueue`, `runAdminQueueAction`, `resetSchoolState`
+- 조회/취소: `lookupRegistration`, `cancelRegistration`
 
-**Error Handling:**
-- Graceful degradation (if credentials missing, log error and return)
-- Check `response.data.header.isSuccessful` before processing
-- Log all failures with context (phone number, template code)
+## Stable Conventions
 
-## COMMANDS
-```bash
-cd functions
-npm run build        # Compile TypeScript
-npm run serve        # Run Firebase emulators locally
-npm run shell        # Interactive functions shell for testing
-npm run deploy       # Deploy to Firebase (runs build predeploy)
-npm run logs         # View function logs in production
-```
+- callable 입력은 normalize helper를 거친다.
+- 관리자 전용 작업은 admin access 검증을 거친다.
+- 공용 사용자 흐름은 인증, request lock, rate limit을 함께 고려한다.
+- AlimTalk 발송 실패는 전체 흐름을 막지 않도록 처리한다.
+<!-- STATIC:END -->
 
-## ANTI-PATTERNS
-- Hardcoding AlimTalk template codes (use schoolConfig.alimtalkSettings)
-- Skipping agreedSms consent check (privacy violation)
-- Synchronous operations in triggers (always use async/await)
-- Missing error boundaries (all HTTP calls in try/catch)
-- Logging sensitive data (PII: phone numbers, student names)
+<!-- DYNAMIC:START -->
+## Dynamic Notes
+
+- 현재 queue 관련 export는 `functions/src/firestoreQueue.ts`에서 재-export 된다.
+- Functions 런타임은 Node.js 22다.
+<!-- DYNAMIC:END -->
+
+## Changelog
+
+- 2026-04-02: 실제 backend 구조에 맞게 slim guide로 재작성.

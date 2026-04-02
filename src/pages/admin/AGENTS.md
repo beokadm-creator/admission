@@ -1,45 +1,49 @@
-# ADMIN PAGES MODULE
+---
+title: Admin Pages Agent Guide
+doc-role: canonical
+status: active
+precedence: 84
+memory-type: domain-guide
+token-estimate: 550
+required-for:
+  - admin page changes
+optional-for:
+  - school public flow work
+---
 
-**Domain:** School administration dashboard
+@include [docs/standards/shared-rules.md#global]
+@include [docs/standards/shared-rules.md#agent-guides]
 
-## OVERVIEW
-Four admin pages for managing schools: authentication, dashboard routing, school listing/creation, and per-school settings configuration.
+# Admin Pages Agent Guide
 
-## WHERE TO LOOK
-| Task | File | Notes |
-|------|------|-------|
-| Admin authentication | `Login.tsx` | Firebase Auth login for MASTER/SCHOOL roles |
-| Admin dashboard | `Dashboard.tsx` | Role-based routing (MASTER → SchoolList, SCHOOL → SchoolSettings) |
-| School management | `SchoolList.tsx` | List all schools, create new ones |
-| School configuration | `SchoolSettings.tsx` (251 lines) | Edit schoolConfig (formFields, alimtalkSettings, terms, etc.) |
+## Essential (Post-Compact)
 
-## CONVENTIONS
-**Admin-Specific Patterns:**
-- All admin routes require authentication via `AdminRoute` component wrapper
-- Role-based access control: `UserRole = 'MASTER' | 'SCHOOL'`
-- MASTER admins can access all schools via SchoolList
-- SCHOOL admins restricted to their `assignedSchoolId`
-- Uses both AuthContext (authentication) and AdminContext (authorization)
+- 관리자 영역은 `/admin/login`, `/admin`, `/admin/schools`, `/admin/schools/:schoolId`로 구성된다.
+- 인증과 프로필 로딩은 `AuthContext`가 담당한다.
+- SCHOOL 역할은 자기 학교만 수정할 수 있어야 한다.
+- 오래된 문서상의 `AdminContext`는 현재 코드에 없으므로 사용하지 않는다.
 
-**RBAC Implementation:**
-```typescript
-// AdminRoute checks:
-- User logged in? (AuthContext)
-- User has admin role? (admins collection)
-- SCHOOL role: assignedSchoolId matches route param?
-```
+<!-- STATIC:START -->
+## Key Files
 
-**State Management:**
-- Firebase Auth for authentication
-- Firestore `admins/{adminId}` for role/assignment data
-- Firestore `schools/{schoolId}` for school configuration
+- `Login.tsx`: Firebase Auth 로그인
+- `Dashboard.tsx`: 역할 기반 진입 페이지
+- `SchoolList.tsx`: 학교 목록 및 생성
+- `SchoolSettings.tsx`: 학교 설정 편집
 
-**Data Access:**
-- MASTER: Read/write all schools
-- SCHOOL: Read/write only assignedSchoolId
+## Stable Rules
 
-## ANTI-PATTERNS
-- Bypassing AdminRoute wrapper (exposes protected routes)
-- Hardcoding role checks (use AdminContext utilities)
-- Editing schools without ownership check (for SCHOOL role)
-- Storing secrets in schoolConfig (use Firebase functions config)
+- 관리자 페이지는 항상 `AdminRoute` 뒤에 위치한다.
+- 권한 분기는 `adminProfile.role`과 `assignedSchoolId`를 기준으로 본다.
+- 설정 저장 전 공개 화면 영향 범위를 함께 점검한다.
+<!-- STATIC:END -->
+
+<!-- DYNAMIC:START -->
+## Dynamic Notes
+
+- 대용량 편집 포인트는 `SchoolSettings.tsx`다.
+<!-- DYNAMIC:END -->
+
+## Changelog
+
+- 2026-04-02: 실제 라우트와 AuthContext 구조에 맞춰 정리.

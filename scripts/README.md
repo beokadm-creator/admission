@@ -1,89 +1,64 @@
+---
+title: Script Operations Guide
+doc-role: runbook
+status: active
+precedence: 60
+memory-type: operational-runbook
+token-estimate: 700
+required-for:
+  - queue validation
+optional-for:
+  - day-to-day frontend work
+---
+
+@include [docs/standards/shared-rules.md#global]
+@include [docs/standards/shared-rules.md#runbooks]
+
 # Queue Validation Scripts
 
-이 디렉터리에는 현재 Firestore 단일 저장소 기준의 검증 스크립트와 과거 실험용 스크립트가 함께 있습니다.
+## Essential (Post-Compact)
 
-## 현재 기준으로 사용해도 되는 스크립트
+- 현재 기준 핵심 검증 스크립트는 `load-test-firestore-queue.mjs`다.
+- 나머지 `validate_*.cjs`, `verify_queue_flow.cjs`는 과거 흐름 참고용이다.
+- 자동 검증 결과만으로 충분하지 않으며 브라우저 기반 수동 QA가 필요하다.
 
-- `load-test-firestore-queue.mjs`
-  - Firebase Emulator 기준의 기본 검증 스크립트입니다.
-  - 동시성, 멱등성, 만료/경합 시나리오를 확인합니다.
-  - 현재 운영 구조에서 가장 먼저 돌려야 하는 자동 검증입니다.
+<!-- STATIC:START -->
+## Recommended Flow
 
-## 참고만 하고 운영 검증 기준으로는 사용하지 않는 스크립트
+1. `cd functions && npm run build`
+2. 루트에서 Firebase emulator 실행
+3. `node scripts/load-test-firestore-queue.mjs --scenario all`
+4. 필요 시 개별 시나리오 실행
+5. 공개 신청 진입부터 제출 완료까지 수동 QA 수행
 
-- `verify_queue_flow.cjs`
-  - RTDB 기반 검증 흐름이 남아 있는 과거 스크립트입니다.
-  - 현재 Firestore 단일 저장소 구조와 맞지 않으므로 운영 승인 판단에 사용하지 않습니다.
+## Commands
 
-- `validate_100_per_60_queue.cjs`
-  - 실서비스 프로젝트를 직접 때리는 예전 대량 검증 스크립트입니다.
-  - RTDB 전제와 과거 배치 운영 로직을 포함하므로 현재 구조 기준의 승인 스크립트로 보지 않습니다.
-
-- 그 외 `validate_*.cjs`
-  - 일부는 여전히 참고용으로 의미가 있지만, 현재 큐의 핵심 판단 기준은 아닙니다.
-  - 운영 승인 판단은 문서화된 수동 QA와 `load-test-firestore-queue.mjs` 결과를 우선합니다.
-
-## 권장 검증 순서
-
-1. Functions 빌드
 ```bash
 cd functions
 npm run build
 cd ..
-```
-
-2. 에뮬레이터 실행
-```bash
 firebase emulators:start --only firestore,functions,auth
-```
-
-기본 포트:
-- Firestore: `127.0.0.1:18085`
-- Auth: `127.0.0.1:9099`
-- Functions: `127.0.0.1:15005`
-
-3. 자동 검증 실행
-```bash
 node scripts/load-test-firestore-queue.mjs --scenario all
-```
-
-개별 시나리오:
-```bash
 node scripts/load-test-firestore-queue.mjs --scenario concurrency
 node scripts/load-test-firestore-queue.mjs --scenario idempotency
 node scripts/load-test-firestore-queue.mjs --scenario expiry
 ```
 
-4. 수동 브라우저 QA 실행
+## Script Roles
 
-운영 안정성 판단에는 아래 문서를 같이 봅니다.
+- `load-test-firestore-queue.mjs`: 현재 구조 기준 주 검증 도구
+- `createAdmin.cjs`: 로컬 또는 운영 보조 작업
+- `validate_*.cjs`: 과거 RTDB 또는 이전 검증 흐름 참고
+- `verify_queue_flow.cjs`: 역사적 참고
+<!-- STATIC:END -->
 
-- `.trae/documents/firestore_queue_cutover_and_test_plan.md`
-- `.trae/documents/queue_operational_stability_validation.md`
+<!-- DYNAMIC:START -->
+## Dynamic Notes
 
-## 현재 운영 기준값
+- 스크립트가 참조하는 포트와 에뮬레이터 구성은 실행 시점 환경과 `firebase.json`을 함께 확인한다.
+- 운영 검증 세부 시나리오는 `.trae/documents/firestore_queue_cutover_and_test_plan.md`와 `.trae/documents/queue_operational_stability_validation.md`를 참고한다.
+<!-- DYNAMIC:END -->
 
-- 작성 세션 만료: `3분`
-- `waiting` presence timeout: `30초`
-- `eligible` presence timeout: `20초`
-- 기본 `maxActiveSessions`: `60`
-- 기본 `batchSize`: `1`
-- 기본 `batchInterval`: `10초`
+## Changelog
 
-## 자동 검증으로 확인되는 것
-
-- `joinQueue` 번호 중복 방지
-- 동일 `requestId` 재호출 시 멱등성 유지
-- `confirmReservation` 와 `forceExpireSession` 경합 시 단일 종결 상태 유지
-- `queueState/current` 와 실제 reservation/registration 문서 수 일치
-
-## 자동 검증만으로 부족한 것
-
-아래 항목은 실제 브라우저 QA가 필요합니다.
-
-- 대기 화면 새로고침 시 번호 유지
-- 대기 화면 완전 이탈 시 `waiting` 30초 후 탈락
-- `eligible` 상태에서 새로고침 시 자동 진입 복구
-- `eligible` 상태에서 이탈 시 `20초` 후 다음 사용자 승격
-- 작성 화면 새로고침 시 세션 복구
-- 작성 화면 3분 초과 시 게이트로 복귀 및 자동 재진입 차단
+- 2026-04-02: 현행 스크립트와 과거 스크립트를 분리해서 문서화.

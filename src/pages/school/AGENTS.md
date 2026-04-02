@@ -1,38 +1,53 @@
-# SCHOOL PAGES MODULE
+---
+title: School Pages Agent Guide
+doc-role: canonical
+status: active
+precedence: 84
+memory-type: domain-guide
+token-estimate: 650
+required-for:
+  - school-facing page changes
+optional-for:
+  - admin-only work
+---
 
-**Domain:** School-facing event registration pages
+@include [docs/standards/shared-rules.md#global]
+@include [docs/standards/shared-rules.md#agent-guides]
+@include [docs/standards/shared-rules.md#design-rules]
 
-## OVERVIEW
-Five route components power the school event funnel: landing/prompting, queue management, registration form, completion status, and lookup.
+# School Pages Agent Guide
 
-## WHERE TO LOOK
-| Task | File | Notes |
-|------|------|-------|
-| Main registration form | `Register.tsx` (310 lines) | Dynamic form fields based on schoolConfig.formFields |
-| Queue status display | `Queue.tsx` | Shows current position and waitlist status |
-| School landing page | `Main.tsx` | Entry point with hero info, countdown, and navigation |
-| Status lookup | `Lookup.tsx` | Phone-based registration lookup |
-| Completion confirmation | `Complete.tsx` | Post-registration confirmation page |
+## Essential (Post-Compact)
 
-## CONVENTIONS
-**School-Specific Patterns:**
-- All pages consume `SchoolContext` for schoolConfig (name, logo, formFields, terms)
-- Form fields dynamically rendered based on `schoolConfig.formFields` flags (collectEmail, collectAddress, etc.)
-- Terms content loaded from `schoolConfig.terms.privacy`, `terms.thirdParty`, `terms.sms`
-- Route paths are nested under `/:schoolId` in App.tsx with SchoolLayout wrapper
-- Phone number format: 010-0000-0000 (enforced in validation)
+- 공개 라우트의 시작점은 `/:schoolId/gate`다.
+- 학교 공개 페이지는 `SchoolLayout`과 `SchoolContext`를 전제로 한다.
+- 신청 폼은 `schoolConfig.formFields`와 `terms` 설정을 기반으로 동적으로 동작한다.
+- 전화번호, 접수 가능 상태, 제출 완료 메시지는 사용자 신뢰에 직접 영향을 주므로 보수적으로 수정한다.
 
-**Data Flow:**
-- Read school config from Firestore: `schools/{schoolId}`
-- Write registrations to subcollection: `schools/{schoolId}/registrations/{registrationId}`
-- Registration status: 'confirmed' | 'waitlisted' | 'canceled'
+<!-- STATIC:START -->
+## Key Files
 
-**State Management:**
-- Uses SchoolContext (not AuthContext - public access)
-- No authentication required for school pages
-- Client-side Firestore queries via Firebase SDK
+- `Main.tsx`는 현재 직접 라우트에 쓰이지 않는다.
+- `Queue.tsx`: 대기 상태 화면
+- `Register.tsx`: 신청 폼
+- `Complete.tsx`: 제출 완료 화면
+- `Lookup.tsx`: 조회 및 취소
+- `src/components/SmartQueueGate.tsx`: 공개 신청 진입과 상태 안내
 
-## ANTI-PATTERNS
-- Hardcoding form field names (derive from schoolConfig.formFields)
-- Embedding school-specific logic in components (keep domain-agnostic)
-- Direct Firestore queries without error boundaries
+## Stable Rules
+
+- 학교 설정은 `SchoolContext`에서 읽는다.
+- 공개 페이지는 인증이 없어도 동작해야 한다.
+- 상태 문구는 사용자가 다음 행동을 알 수 있게 써야 한다.
+<!-- STATIC:END -->
+
+<!-- DYNAMIC:START -->
+## Dynamic Notes
+
+- 루트 라우팅 기준 index는 `gate`로 redirect된다.
+- 오래된 문서에서 `Main.tsx`를 진입점으로 설명한 경우 현재 코드와 다르다.
+<!-- DYNAMIC:END -->
+
+## Changelog
+
+- 2026-04-02: 현재 라우트 구조와 SmartQueueGate 중심 흐름에 맞게 수정.
