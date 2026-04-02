@@ -25,3 +25,5 @@ scripts/serviceAccountKey.json
 *.njsproj
 *.sln
 *.sw?.tools/
+admission-477e5-firebase-adminsdk-fbsvc-2ba47c291b.json
+firebase-config-actual.json

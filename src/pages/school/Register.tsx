@@ -23,7 +23,7 @@ const TermsAccordion = ({ title, content, isOpen, onToggle, isChecked, onCheck }
           type="checkbox"
           checked={isChecked}
           onChange={(e) => onCheck(e.target.checked)}
-          className="peer relative appearance-none w-5 h-5 border-2 border-gray-300 rounded-sm cursor-pointer transition-all checked:border-snu-blue checked:bg-snu-blue focus:outline-none focus:ring-2 focus:ring-snu-blue/30 focus:ring-offset-1"
+          className="peer relative appearance-none w-6 h-6 min-h-[24px] min-w-[24px] border-2 border-gray-300 rounded-sm cursor-pointer transition-all checked:border-snu-blue checked:bg-snu-blue focus:outline-none focus:ring-2 focus:ring-snu-blue/30 focus:ring-offset-1"
         />
         <svg className="absolute w-3 h-3 text-white pointer-events-none opacity-0 peer-checked:opacity-100 transition-opacity" viewBox="0 0 14 10" fill="none">
           <path d="M1 5L4.5 8.5L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -35,7 +35,7 @@ const TermsAccordion = ({ title, content, isOpen, onToggle, isChecked, onCheck }
       </span>
     </div>
     {isOpen && (
-      <div className="p-4 text-[13px] leading-relaxed text-gray-600 whitespace-pre-wrap border-t border-gray-100 bg-white max-h-48 overflow-y-auto">
+      <div className="p-4 text-base leading-relaxed text-gray-700 whitespace-pre-wrap border-t border-gray-100 bg-white max-h-48 overflow-y-auto">
         {content || '내용이 없습니다.'}
       </div>
     )}
@@ -181,7 +181,7 @@ export default function RegisterPage() {
     }
 
     if (!termsAgreed.privacy || !termsAgreed.thirdParty || !termsAgreed.sms) {
-      alert('모든 약관에 동의해야 합니다.');
+      alert('모든 필수 약관에 동의해 주십시오.');
       return;
     }
 
@@ -377,27 +377,27 @@ export default function RegisterPage() {
             </h2>
             <div className="space-y-6">
               <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">신청자(학부모) 성명 <span className="text-red-500 font-normal">*</span></label>
+                <label className="block text-sm font-bold text-gray-600 uppercase tracking-wider mb-2">신청자(학부모) 성명 <span className="text-red-500 font-normal">*</span></label>
                 <input
                   {...register('studentName', { required: true })}
-                  className="block w-full border border-gray-100 rounded-md p-3.5 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all font-bold text-gray-900 outline-none placeholder:text-gray-300 placeholder:font-normal"
-                  placeholder="신청자 실명 입력"
+                  className="block w-full min-h-[56px] text-base border border-gray-100 rounded-md p-4 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all font-bold text-gray-900 outline-none placeholder:text-gray-400 placeholder:font-normal"
+                  placeholder="신청자 실명을 입력해 주십시오"
                   autoFocus
                 />
-                {errors.studentName && <span className="text-red-500 text-[11px] mt-2 font-bold flex items-center uppercase tracking-tighter"><AlertTriangle className="w-3 h-3 mr-1" />이름은 필수 항목입니다.</span>}
+                {errors.studentName && <span className="text-red-500 text-sm mt-2 font-bold flex items-center tracking-tight"><AlertTriangle className="w-4 h-4 mr-1.5" />성명을 입력해 주십시오.</span>}
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">휴대폰 번호 <span className="text-red-500 font-normal">*</span></label>
+                <label className="block text-sm font-bold text-gray-600 uppercase tracking-wider mb-2">휴대폰 번호 <span className="text-red-500 font-normal">*</span></label>
                 <input
                   {...register('phone', { 
                     required: true, 
                     pattern: /^010\d{8}$/ 
                   })}
-                  className="block w-full border border-gray-100 rounded-md p-3.5 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all font-mono tracking-widest text-gray-900 outline-none placeholder:font-sans placeholder:tracking-normal placeholder:text-gray-300 placeholder:font-normal"
-                  placeholder="01000000000 (숫자만 입력)"
+                  className="block w-full min-h-[56px] text-base border border-gray-100 rounded-md p-4 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all font-mono tracking-widest text-gray-900 outline-none placeholder:font-sans placeholder:tracking-normal placeholder:text-gray-400 placeholder:font-normal"
+                  placeholder="01000000000 (숫자만 입력해 주십시오)"
                 />
-                {errors.phone && <span className="text-red-500 text-[11px] mt-2 font-bold flex items-center uppercase tracking-tighter"><AlertTriangle className="w-3 h-3 mr-1" />올바른 휴대폰 번호를 입력해주세요 (010으로 시작하는 11자리 숫자).</span>}
+                {errors.phone && <span className="text-red-500 text-sm mt-2 font-bold flex items-center tracking-tight"><AlertTriangle className="w-4 h-4 mr-1.5" />010으로 시작하는 11자리 숫자로 입력해 주십시오.</span>}
               </div>
             </div>
           </div>
@@ -411,27 +411,27 @@ export default function RegisterPage() {
             <div className="space-y-5">
               {schoolConfig.formFields.collectStudentId && (
                 <div>
-                  <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">학번</label>
-                  <input {...register('studentId')} className="block w-full border border-gray-100 rounded-md p-3.5 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all font-medium" placeholder="해당 시 입력" />
+                  <label className="block text-sm font-bold text-gray-600 uppercase tracking-wider mb-2">학번</label>
+                  <input {...register('studentId')} className="block w-full min-h-[56px] text-base border border-gray-100 rounded-md p-4 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all font-medium" placeholder="해당되시는 경우 입력해 주십시오" />
                 </div>
               )}
               {schoolConfig.formFields.collectEmail && (
                 <div>
-                  <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">이메일 주소</label>
-                  <input {...register('email')} type="email" className="block w-full border border-gray-100 rounded-md p-3.5 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all font-medium" placeholder="example@snu.ac.kr" />
+                  <label className="block text-sm font-bold text-gray-600 uppercase tracking-wider mb-2">이메일 주소</label>
+                  <input {...register('email')} type="email" className="block w-full min-h-[56px] text-base border border-gray-100 rounded-md p-4 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all font-medium" placeholder="example@snu.ac.kr" />
                 </div>
               )}
               {schoolConfig.formFields.collectSchoolName && (
                 <div>
-                  <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">소속 학교명</label>
-                  <input {...register('schoolName')} className="block w-full border border-gray-100 rounded-md p-3.5 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all font-medium" placeholder="재학 중인 학교명" />
+                  <label className="block text-sm font-bold text-gray-600 uppercase tracking-wider mb-2">소속 학교명</label>
+                  <input {...register('schoolName')} className="block w-full min-h-[56px] text-base border border-gray-100 rounded-md p-4 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all font-medium" placeholder="재학 중인 학교명을 입력해 주십시오" />
                 </div>
               )}
               {schoolConfig.formFields.collectGrade && (
                 <div>
-                  <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">학년</label>
-                  <select {...register('grade')} className="block w-full border border-gray-100 rounded-md p-3.5 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all text-gray-700 outline-none font-medium">
-                    <option value="">소속 차시/학년 선택</option>
+                  <label className="block text-sm font-bold text-gray-600 uppercase tracking-wider mb-2">학년</label>
+                  <select {...register('grade')} className="block w-full min-h-[56px] text-base border border-gray-100 rounded-md p-4 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all text-gray-700 outline-none font-medium">
+                    <option value="">소속 차시/학년을 선택해 주십시오</option>
                     {schoolConfig.formFields.gradeOptions && schoolConfig.formFields.gradeOptions.length > 0 ? (
                       schoolConfig.formFields.gradeOptions.map(option => (
                         <option key={option} value={option}>{option}</option>
@@ -449,12 +449,12 @@ export default function RegisterPage() {
               )}
               {schoolConfig.formFields.collectAddress && (
                 <div>
-                  <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">거주지 주소</label>
-                  <input {...register('address')} className="block w-full border border-gray-100 rounded-md p-3.5 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all font-medium" placeholder="상세 주소 포함" />
+                  <label className="block text-sm font-bold text-gray-600 uppercase tracking-wider mb-2">거주지 주소</label>
+                  <input {...register('address')} className="block w-full min-h-[56px] text-base border border-gray-100 rounded-md p-4 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all font-medium" placeholder="상세 주소를 포함하여 입력해 주십시오" />
                 </div>
               )}
               {!schoolConfig.formFields.collectStudentId && !schoolConfig.formFields.collectEmail && !schoolConfig.formFields.collectSchoolName && !schoolConfig.formFields.collectGrade && !schoolConfig.formFields.collectAddress && (
-                <p className="text-sm text-gray-400 font-medium py-2">추가로 수집하는 정보가 없습니다.</p>
+                <p className="text-base text-gray-500 font-medium py-2">추가로 수집하는 정보가 없습니다.</p>
               )}
             </div>
           </div>
@@ -512,14 +512,14 @@ export default function RegisterPage() {
           <button
             type="submit"
             disabled={submitting}
-            className={`w-full py-5 rounded-md text-white font-bold text-lg sm:text-xl transition-all duration-300 shadow-sm ${
+            className={`w-full py-5 min-h-[56px] rounded-2xl text-white font-bold text-lg sm:text-xl transition-all duration-300 shadow-sm ${
               submitting ? 'bg-gray-300 cursor-not-allowed shadow-none' : 'bg-snu-blue hover:bg-snu-dark hover:shadow-md focus:ring-4 focus:ring-snu-blue/20'
             }`}
           >
             {submitting ? (
-              <span className="flex items-center justify-center uppercase tracking-widest text-sm">
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin mr-3"></div>
-                Processing...
+              <span className="flex items-center justify-center tracking-widest text-base">
+                <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin mr-3"></div>
+                처리 중입니다...
               </span>
             ) : '참가 신청서 제출'}
           </button>

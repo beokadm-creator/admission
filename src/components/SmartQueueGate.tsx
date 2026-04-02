@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
@@ -278,12 +278,12 @@ export default function SmartQueueGate() {
             : null
       : null;
   const buttonStatusMessage = canEnter
-    ? '지금 입장 가능한 상태입니다. 3분 안에 제출하지 않으면 세션이 만료됩니다.'
+    ? '지금 신청 가능합니다. 3분 안에 제출하지 않으시면 기회가 양보됩니다.'
     : myEntry?.status === 'expired'
-      ? '이전 작성 기회가 종료되었습니다. 다시 대기열에 입장하면 새 번호가 발급됩니다.'
+      ? '이전 신청 기회가 종료되었습니다. 지속 참가하시려면 대기열에 다시 입장해 새 번호를 받아주십시오.'
       : queueLimitReached
-        ? `대기 접수 상한 ${queueJoinLimit.toLocaleString()}명에 도달해 버튼이 비활성화되었습니다. 이미 번호를 받은 분들만 계속 진행할 수 있습니다.`
-        : joinDisabledReason || '오픈 시간에 나타나는 버튼을 누르면 대기번호가 발급됩니다.';
+        ? `대기 접수 상한 ${queueJoinLimit.toLocaleString()}명에 도달해 버튼이 비활성화되었습니다. 이미 번호를 받으신 분들만 입장이 가능합니다.`
+        : joinDisabledReason || '오픈 시각에 활성화되는 버튼을 누르시면 대기번호가 발급됩니다.';
   const primaryActionLabel = joining
     ? `${selectedRound?.label || ''} 대기번호 발급 중...`
     : myEntry?.status === 'expired'
@@ -363,7 +363,7 @@ export default function SmartQueueGate() {
     }
 
     if (canEnter) {
-      return '지금 신청서를 작성할 수 있습니다. 잠시 후 신청 페이지로 자동 이동합니다.';
+      return '지금 신청서를 작성하실 수 있습니다. 잠시 후 신청 페이지로 자동 이동합니다.';
     }
 
     if (remainingCapacity <= 0) {
@@ -511,9 +511,9 @@ export default function SmartQueueGate() {
           <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-stone-100">
             <Ticket className="h-8 w-8 text-stone-700" />
           </div>
-          <h1 className="text-3xl font-black tracking-tight text-stone-950">대기열 없이 바로 신청하는 학교입니다.</h1>
-          <p className="mt-3 text-sm leading-relaxed text-stone-600">
-            오픈 시간이 되면 서버가 바로 신청 세션을 열어 주며, 별도 대기열 없이 신청할 수 있습니다.
+          <h1 className="text-3xl font-black tracking-tight text-stone-950">대기열 없이 바로 신청이 가능한 과정입니다.</h1>
+          <p className="mt-3 text-base leading-relaxed text-stone-600">
+            오픈 시각이 되면 서버가 바로 신청 세션을 열어드리며, 별도 대기열 없이 신청이 가능합니다.
           </p>
           <button
             onClick={() => void startRegistration()}
@@ -715,7 +715,7 @@ export default function SmartQueueGate() {
               {schoolConfig?.programImageUrl && (
                 <button
                   onClick={() => setShowProgramImage(true)}
-                  className="mt-4 flex w-full items-center justify-center rounded-2xl border border-gray-300 bg-white px-5 py-3 text-sm font-bold text-gray-700 transition hover:bg-gray-50"
+                  className="mt-4 flex min-h-[56px] w-full items-center justify-center rounded-2xl border border-gray-300 bg-white px-5 py-3 text-base font-bold text-gray-700 transition hover:bg-gray-50"
                 >
                   프로그램 이미지 보기
                 </button>

@@ -58,7 +58,7 @@ export default function CompletePage() {
                   </p>
                   <div className="mt-4 flex items-center justify-center gap-2">
                     <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                    <p className="text-[13px] text-gray-600 font-medium tracking-tight">입력한 연락처 기준으로 안내 메시지가 발송됩니다.</p>
+                    <p className="text-[14px] text-gray-600 font-medium tracking-tight">입력한 연락처 기준으로 안내 메시지가 발송됩니다.</p>
                   </div>
                 </div>
               </>
@@ -78,32 +78,32 @@ export default function CompletePage() {
                   <p className="text-[17px] font-bold text-[#8B6508] leading-relaxed">
                     현재 <span className="text-[#B8860B] border-b-2 border-[#B8860B]/30 pb-0.5 font-black tracking-wider">예비 {rank ?? '-'}번</span>으로 배정되었습니다.
                   </p>
-                  <p className="text-[13px] text-[#8B6508]/70 font-medium mt-3">승급 가능 시 입력한 연락처로 순차 안내됩니다.</p>
+                  <p className="text-[14px] text-[#8B6508]/70 font-medium mt-3">승급 가능 시 입력한 연락처로 순차 안내해 드립니다.</p>
                 </div>
               </>
             )}
 
             <div className="grid gap-3 text-left sm:grid-cols-2 mb-8">
               <div className="rounded-2xl border border-gray-100 bg-gray-50 px-5 py-4">
-                <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
-                  <ClipboardList className="h-4 w-4 text-[#003B71]" />
+                <div className="flex items-center gap-2 text-base font-bold text-gray-900">
+                  <ClipboardList className="h-5 w-5 text-[#003B71]" />
                   현재 상태
                 </div>
-                <p className="mt-2 text-sm leading-relaxed text-gray-600">
+                <p className="mt-2 text-base leading-relaxed text-gray-600">
                   {isConfirmed
-                    ? '신청이 정상 접수되었고 별도 재입장은 필요하지 않습니다.'
-                    : '예비 순번은 조회 페이지에서 다시 확인할 수 있습니다.'}
+                    ? '신청이 정상 접수되었으며 추가적인 입장은 필요하지 않습니다.'
+                    : '예비 순번은 조회 페이지에서 다시 확인하실 수 있습니다.'}
                 </p>
               </div>
               <div className="rounded-2xl border border-gray-100 bg-gray-50 px-5 py-4">
-                <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
-                  <BellRing className="h-4 w-4 text-[#003B71]" />
+                <div className="flex items-center gap-2 text-base font-bold text-gray-900">
+                  <BellRing className="h-5 w-5 text-[#003B71]" />
                   다음 안내
                 </div>
-                <p className="mt-2 text-sm leading-relaxed text-gray-600">
+                <p className="mt-2 text-base leading-relaxed text-gray-600">
                   {isConfirmed
-                    ? '행사 관련 후속 안내는 등록한 연락처와 조회 페이지를 통해 확인해 주세요.'
-                    : '취소나 만료가 발생하면 예비 순번 기준으로 자동 승급이 안내됩니다.'}
+                    ? '행사 관련 후속 안내는 등록하신 연락처와 조회 페이지를 통해 확인해 주십시오.'
+                    : '취소나 기한 만료가 발생할 경우 예비 순번 기준으로 자동 승급 안내를 드립니다.'}
                 </p>
               </div>
             </div>
@@ -117,7 +117,7 @@ export default function CompletePage() {
             <div className="grid gap-4">
               <Link
                 to={`/${schoolId}/lookup`}
-                className="group flex items-center justify-center w-full py-5 bg-[#003B71] text-white rounded-2xl font-bold text-[17px] shadow-[0_8px_16px_-4px_rgba(0,59,113,0.3)] hover:shadow-[0_12px_24px_-4px_rgba(0,59,113,0.4)] hover:translate-y-[-2px] transition-all duration-300 overflow-hidden relative"
+                className="group flex items-center min-h-[56px] justify-center w-full py-5 bg-[#003B71] text-white rounded-2xl font-bold text-[17px] shadow-[0_8px_16px_-4px_rgba(0,59,113,0.3)] hover:shadow-[0_12px_24px_-4px_rgba(0,59,113,0.4)] hover:translate-y-[-2px] transition-all duration-300 overflow-hidden relative"
               >
                 <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
                 <span className="relative z-10 flex items-center">
@@ -128,7 +128,7 @@ export default function CompletePage() {
 
               <Link
                 to={`/${schoolId}`}
-                className="flex items-center justify-center w-full py-5 bg-gray-50 text-gray-700 rounded-2xl font-bold text-[15px] hover:bg-gray-100 hover:text-gray-900 border border-gray-100 transition-all duration-300"
+                className="flex items-center min-h-[56px] justify-center w-full py-5 bg-gray-50 text-gray-700 rounded-2xl font-bold text-[15px] hover:bg-gray-100 hover:text-gray-900 border border-gray-100 transition-all duration-300"
               >
                 <Home className="w-4 h-4 mr-2 opacity-50" />
                 메인 게이트로 이동

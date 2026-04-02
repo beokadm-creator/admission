@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronRight, Clock, FileEdit, Search } from 'lucide-react';
 import { useSchool } from '../../contexts/SchoolContext';
@@ -99,7 +99,7 @@ export default function SchoolMain() {
     {
       label: 'STEP 3',
       title: '신청 완료',
-      detail: '입장 후 3분 안에 신청서를 제출하면 해당 차수 기준으로 확정 또는 예비 접수 결과가 안내됩니다.'
+      detail: '입장 후 3분 안에 신청서를 제출하면 해당 차수 기준으로 확정 또는 예비 접수 결과가 안내됩니다. 예비는 확정이 아니며, 결원 발생 시 별도 연락을 드립니다.'
     }
   ];
 
@@ -120,7 +120,7 @@ export default function SchoolMain() {
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.4em] text-gray-400">Admission Gate</p>
                   <h1 className="text-3xl font-black text-gray-900 sm:text-4xl">{schoolConfig.name}</h1>
-                  <p className="text-sm leading-relaxed text-gray-500">{heroMessage}</p>
+                  <p className="text-base leading-relaxed text-gray-500">{heroMessage}</p>
                 </div>
               </div>
               <div className="grid gap-2 text-sm text-gray-500 md:text-right">
@@ -138,7 +138,7 @@ export default function SchoolMain() {
             </div>
 
             {programInfo && (
-              <div className="rounded-[1.5rem] border border-gray-200 bg-gray-50 px-5 py-4 text-sm text-gray-600">
+              <div className="rounded-[1.5rem] border border-gray-200 bg-gray-50 px-5 py-4 text-base text-gray-600">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-gray-500">프로그램 안내</p>
                 <p className="mt-2 leading-relaxed text-gray-700">{programInfo}</p>
               </div>
@@ -163,7 +163,7 @@ export default function SchoolMain() {
               <div className="rounded-2xl border border-gray-200 bg-white p-4 text-center">
                 <p className="text-xs uppercase tracking-[0.3em] text-gray-500">예비 접수</p>
                 <p className="text-2xl font-black text-gray-900">{currentRound?.waitlistCapacity || 0}</p>
-                <p className="text-xs text-gray-500">추가 인원</p>
+                <p className="text-xs text-gray-500">결원 발생 시 별도 연락</p>
               </div>
             </div>
           </div>
@@ -179,16 +179,16 @@ export default function SchoolMain() {
                 <FileEdit className="h-6 w-6" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-indigo-600">게이트 입장</p>
+                <p className="text-base font-semibold text-indigo-600">게이트 입장</p>
                 <h3 className="text-2xl font-bold text-gray-900">대기열 순번 받기</h3>
               </div>
             </div>
-            <p className="text-sm leading-relaxed text-gray-500">
+            <p className="text-base leading-relaxed text-gray-500">
               {isOpen
                 ? '게이트가 열려 있습니다. 클릭 즉시 본인 순번과 전체 현황을 확인할 수 있습니다.'
                 : '오픈 시간이 되면 버튼이 활성화됩니다. 활성화 전에는 순번이 부여되지 않습니다.'}
             </p>
-            <div className="flex items-center font-semibold text-indigo-600">
+            <div className="flex items-center font-semibold text-indigo-600 text-base">
               게이트로 이동
               <ChevronRight className="ml-2 h-4 w-4" />
             </div>
@@ -204,14 +204,14 @@ export default function SchoolMain() {
                   <Search className="h-6 w-6" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-emerald-600">신청 조회</p>
+                  <p className="text-base font-semibold text-emerald-600">신청 조회</p>
                   <h3 className="text-2xl font-bold text-gray-900">등록 상태 확인</h3>
                 </div>
               </div>
-              <p className="text-sm leading-relaxed text-gray-500">
+              <p className="text-base leading-relaxed text-gray-500">
                 신청 이후 본인의 상태를 확인하거나 후속 안내를 다시 확인할 수 있습니다.
               </p>
-              <div className="flex items-center font-semibold text-emerald-600">
+              <div className="flex items-center font-semibold text-emerald-600 text-base">
                 조회 페이지로 이동
                 <ChevronRight className="ml-2 h-4 w-4" />
               </div>
@@ -236,7 +236,7 @@ export default function SchoolMain() {
           </div>
           <div className="mt-6 grid gap-6 sm:grid-cols-3">
             {steps.map((step) => (
-              <div key={step.title} className="rounded-2xl border border-gray-100 bg-gray-50 p-6 text-sm text-gray-600">
+              <div key={step.title} className="rounded-2xl border border-gray-100 bg-gray-50 p-6 text-base text-gray-600">
                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-gray-500">{step.label}</p>
                 <h4 className="mt-3 text-lg font-semibold text-gray-900">{step.title}</h4>
                 <p className="mt-2 leading-relaxed text-gray-500">{step.detail}</p>
@@ -245,9 +245,17 @@ export default function SchoolMain() {
           </div>
         </section>
 
+        <section className="rounded-[2rem] border border-amber-100 bg-amber-50 p-8 shadow-sm">
+          <h3 className="text-2xl font-bold text-gray-900">예비 접수 안내</h3>
+          <p className="mt-3 text-base leading-relaxed text-gray-700">
+            예비 접수는 확정 참가가 아닙니다. 확정 등록 인원에서 취소나 미제출 등으로 결원이 발생한 경우에만
+            순차적으로 별도 연락을 드립니다.
+          </p>
+        </section>
+
         <section className="rounded-[2rem] border border-gray-100 bg-white p-8 shadow-lg">
           <h3 className="text-2xl font-bold text-gray-900">문의 안내</h3>
-          <p className="mt-3 text-sm leading-relaxed text-gray-600">
+          <p className="mt-3 text-base leading-relaxed text-gray-600">
             문의처 02-6959-3871~3
             <br />
             카카오 문의를 권장 합니다. 교육 프로그램 및 홈페이지 기능 관련 문의
@@ -256,10 +264,10 @@ export default function SchoolMain() {
             href="https://pf.kakao.com/_wxexmxgn/chat"
             target="_blank"
             rel="noreferrer"
-            className="mt-5 inline-flex items-center rounded-2xl bg-[#FEE500] px-5 py-3 text-sm font-bold text-[#191919] transition hover:brightness-95"
+            className="mt-5 inline-flex min-h-[56px] items-center rounded-2xl bg-[#FEE500] px-6 py-3 text-base font-bold text-[#191919] transition hover:brightness-95"
           >
             카카오채널 문의
-            <ChevronRight className="ml-1 h-4 w-4" />
+            <ChevronRight className="ml-1 h-5 w-5" />
           </a>
         </section>
       </div>

@@ -46,12 +46,12 @@ export default function LookupPage() {
       if (response.data?.registration) {
         setResult(response.data.registration);
       } else {
-        setError('일치하는 신청 내역이 없습니다.');
+        setError('일치하는 신청 내역이 없습니다. 입력하신 정보를 다시 확인해 주십시오.');
       }
     } catch (lookupError: any) {
       console.error(lookupError);
       if (lookupError?.code === 'functions/not-found') {
-        setError('일치하는 신청 내역이 없습니다.');
+        setError('일치하는 신청 내역이 없습니다. 입력하신 정보를 다시 확인해 주십시오.');
       } else {
         setError(lookupError?.message || '조회 중 오류가 발생했습니다.');
       }
@@ -64,7 +64,7 @@ export default function LookupPage() {
     if (!result || !schoolConfig) return;
 
     const confirmed = window.confirm(
-      '정말로 신청을 취소하시겠습니까?\n취소 후에는 되돌릴 수 없으며, 다음 대기자에게 기회가 넘어갈 수 있습니다.'
+      '정말로 신청을 취소하시겠습니까?\n취소 후에는 되돌릴 수 없으며, 다음 대기자에게 기회가 양보됩니다.'
     );
     if (!confirmed) return;
 
@@ -133,7 +133,7 @@ export default function LookupPage() {
             <Search className="h-7 w-7 text-snu-blue" />
           </div>
           <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">신청 내역 조회</h1>
-          <p className="mt-3 text-sm leading-relaxed text-gray-400 font-medium">
+          <p className="mt-3 text-base leading-relaxed text-gray-500 font-medium">
             신청 시 입력한 정확한 정보로 현재 상태를 확인하실 수 있습니다.
           </p>
         </div>
@@ -141,7 +141,7 @@ export default function LookupPage() {
         <div className="mb-6 rounded-lg border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
           <form onSubmit={handleLookup} className="space-y-6">
             <div>
-              <label className="mb-2 block text-xs font-bold text-gray-500 uppercase tracking-wider">신청자 성명</label>
+              <label className="mb-2 block text-sm font-bold text-gray-500 uppercase tracking-wider">신청자 성명</label>
               <input
                 type="text"
                 value={applicantName}
@@ -153,7 +153,7 @@ export default function LookupPage() {
             </div>
 
             <div>
-              <label className="mb-2 block text-xs font-bold text-gray-500 uppercase tracking-wider">휴대폰 번호 뒤 4자리</label>
+              <label className="mb-2 block text-sm font-bold text-gray-500 uppercase tracking-wider">휴대폰 번호 뒤 4자리</label>
               <input
                 type="text"
                 value={phoneLast4}
@@ -165,17 +165,17 @@ export default function LookupPage() {
                 pattern="\d{4}"
                 required
               />
-              <p className="mt-2 text-[11px] text-gray-400 font-medium">
-                예: 010-0000-<span className="text-snu-blue font-bold">5678</span>인 경우 5678을 입력합니다.
+              <p className="mt-2 text-[13px] text-gray-400 font-medium">
+                예: 010-0000-<span className="text-snu-blue font-bold">5678</span>인 경우 5678을 입력해 주십시오.
               </p>
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-md bg-snu-blue py-4 text-base font-bold text-white shadow-sm transition-all hover:bg-snu-dark disabled:cursor-not-allowed disabled:bg-gray-300"
+              className="w-full min-h-[56px] rounded-md bg-snu-blue py-4 text-base font-bold text-white shadow-sm transition-all hover:bg-snu-dark disabled:cursor-not-allowed disabled:bg-gray-300"
             >
-              {loading ? '검색 중...' : '신청 내역 조회'}
+              {loading ? '검색 중입니다...' : '신청 내역 조회'}
             </button>
           </form>
         </div>
@@ -249,13 +249,13 @@ export default function LookupPage() {
                   <button
                     onClick={handleCancel}
                     disabled={canceling}
-                    className="w-full rounded-md border border-gray-200 bg-white py-3.5 text-sm font-bold text-gray-400 transition-all hover:border-red-100 hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="w-full min-h-[56px] rounded-md border border-gray-200 bg-white py-3.5 text-base font-bold text-gray-500 transition-all hover:border-red-100 hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {canceling ? '처리 중...' : '신청 취소 신청'}
+                    {canceling ? '처리 중입니다...' : '신청 내역 취소'}
                   </button>
-                  <p className="mt-3 flex items-center justify-center text-center text-[10px] font-bold text-gray-300 uppercase tracking-tighter">
-                    <AlertCircle className="mr-1 h-3 w-3" />
-                    취소 처리 시 해당 대기 순번은 영구 소멸됩니다.
+                  <p className="mt-3 flex items-center justify-center text-center text-[13px] font-bold text-gray-400 uppercase tracking-tighter">
+                    <AlertCircle className="mr-1 h-3.5 w-3.5" />
+                    취소 처리 시 해당 대기 순번은 영구적으로 소멸됩니다.
                   </p>
                 </div>
               )}
@@ -271,10 +271,10 @@ export default function LookupPage() {
                 <button
                   onClick={handleServiceAccess}
                   disabled={serviceLoading}
-                  className="mt-4 w-full rounded-md bg-snu-blue py-3.5 font-bold text-white shadow-sm transition hover:bg-snu-dark disabled:cursor-not-allowed disabled:opacity-50"
+                  className="mt-4 w-full min-h-[56px] rounded-md bg-snu-blue py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-snu-dark disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {serviceLoading
-                    ? '이동 중...'
+                    ? '이동 중입니다...'
                     : schoolConfig.serviceAccess.buttonLabel || '서비스 시작하기'}
                 </button>
               </div>

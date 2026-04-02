@@ -96,3 +96,27 @@ All business logic lives here. Key groups:
 
 ### Environment Variables
 Frontend uses `VITE_FIREBASE_*` env vars (`.env`). Cloud Functions use ADC / Firebase environment config.
+
+## Design Context
+
+전체 디자인 맥락은 `.impeccable.md`를 참조. 핵심 원칙 요약:
+
+### Users
+**주 사용자: 입학 지원 학생의 학부모** — 입학 당일 현장에서 스마트폰으로 대기열 등록. 고부담 상황, 중·장년층 포함, 빠르고 명확한 피드백이 불안 해소의 핵심.
+
+### Brand Personality
+- **3단어**: 신뢰, 안정, 격식
+- 서울대학교 공식 채널의 권위와 공신력, 따뜻한 공식성
+- 텍스트 어조: 존댓말, 명확한 안내, 불필요한 유행어 없음
+
+### Aesthetic Direction
+- SNU Blue(`#003B71`) 기반, 절제된 색상 팔레트
+- **절대 피할 것**: 과도한 그라디언트/네온/화려함, 스타트업 감성, 극단적 미니멀, 관료적 올드 UI
+- 라이트 모드 우선, 모바일 최우선
+
+### Design Principles
+1. **SNU Blue 기반 신뢰감 있는 색상 체계**: SNU Blue 일관성 유지, 임의 색상 변경 금지
+2. **상태(대기/입장/완료)를 색상+숫자로 즉시 전달**: 대기/입장/완료 상태를 시각적으로 즉시 파악할 수 있도록 표현
+3. **한글 가독성 우선, 최소 16px, 존댓말 어조**: 불안을 낮추는 타이포그래피, 충분한 크기와 쉬운 말 사용
+4. **모바일 터치 최적화 (버튼 최소 56px)**: 핵심 행동은 한 화면에서 완결되도록 모바일 최우선 배치
+5. **격식 있되 친절한 안내 문구**: 오류 메시지도 비난하지 않고 다음 행동 중심으로 작성
