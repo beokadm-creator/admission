@@ -16,6 +16,7 @@ import {
   QueueIdentityInput,
   saveStoredQueueIdentity
 } from '../lib/queue';
+import { callCallableWithRetry } from '../lib/callable';
 import { createRequestId } from '../lib/requestId';
 import { getCurrentAdmissionRound, getAdmissionRoundTotal, normalizeAdmissionRounds } from '../lib/admissionRounds';
 
@@ -37,6 +38,17 @@ interface QueueEntry {
   number: number | null;
   status: 'waiting' | 'eligible' | 'consumed' | 'expired';
   activeReservationId?: string | null;
+}
+
+interface JoinQueueResponse {
+  number?: number | null;
+  status?: QueueEntry['status'] | 'direct';
+}
+
+interface StartRegistrationResponse {
+  success?: boolean;
+  sessionId?: string;
+  expiresAt?: number;
 }
 
 function formatDateLabel(openTimeMs: number) {
@@ -83,10 +95,6 @@ function getCountdownParts(ms: number) {
     { label: 'MIN', value: String(minutes).padStart(2, '0') },
     { label: 'SEC', value: String(seconds).padStart(2, '0') }
   ];
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 const RECENT_EXPIRY_SUPPRESSION_MS = 15 * 1000;
@@ -304,8 +312,12 @@ export default function SmartQueueGate() {
   }, [schoolId, userId, selectedRound?.id]);
 
   const myNumber = myEntry?.number ?? null;
-  const canEnter = myEntry?.status === 'eligible' && myNumber !== null && myNumber <= queueState.currentNumber;
-  const waitingAhead = myNumber ? Math.max(0, myNumber - queueState.currentNumber - 1) : 0;
+  const canEnter = myEntry?.status === 'eligible' && myNumber !== null;
+  const waitingAhead = myEntry?.status === 'eligible'
+    ? 0
+    : myNumber
+      ? Math.max(0, myNumber - queueState.currentNumber - 1)
+      : 0;
   const estimatedWaitMinutes =
     waitingAhead > 0 ? Math.max(1, Math.ceil((waitingAhead / Math.max(maxActiveSessions, 1)) * 3)) : 0;
   const remainingRegular = Math.max(0, regularCapacity - Math.min(queueState.confirmedCount, regularCapacity));
@@ -479,39 +491,35 @@ export default function SmartQueueGate() {
 
     try {
       await ensureQueueUserId();
-      const joinQueueFn = httpsCallable(functions, 'joinQueue');
-      let result: any = null;
-      let lastError: any = null;
-      const maxAttempts = 3;
-
-      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-        try {
-          result = await joinQueueFn({
-            schoolId,
-            roundId: selectedRound?.id,
-            requestId,
-            queueIdentity: {
-              studentName: queueIdentity.studentName.trim(),
-              phone: normalizedQueuePhone
-            }
-          });
-          lastError = null;
-          break;
-        } catch (error: any) {
-          lastError = error;
-          const code = String(error?.code || '');
-          const shouldRetry = code.includes('resource-exhausted') || code.includes('deadline-exceeded');
-          if (!shouldRetry || attempt === maxAttempts) {
-            throw error;
+      const joinQueueFn = httpsCallable<
+        {
+          schoolId: string;
+          roundId?: string;
+          requestId: string;
+          queueIdentity: {
+            studentName: string;
+            phone: string;
+          };
+        },
+        JoinQueueResponse
+      >(functions, 'joinQueue');
+      const result = await callCallableWithRetry(
+        joinQueueFn,
+        {
+          schoolId,
+          roundId: selectedRound?.id,
+          requestId,
+          queueIdentity: {
+            studentName: queueIdentity.studentName.trim(),
+            phone: normalizedQueuePhone
           }
-          const backoffMs = 2000 + Math.floor(Math.random() * 3000) + (attempt - 1) * 5000;
-          await sleep(backoffMs);
+        },
+        {
+          maxAttempts: 5,
+          getDelayMs: ({ attempt }) => 1200 + Math.floor(Math.random() * 1200) + (attempt - 1) * 2500
         }
-      }
+      );
 
-      if (!result && lastError) {
-        throw lastError;
-      }
       if (result.data) {
         if (selectedRound?.id) {
           saveStoredQueueIdentity(schoolId, selectedRound.id, {
@@ -521,7 +529,7 @@ export default function SmartQueueGate() {
         }
         setMyEntry((prev) => ({
           number: result.data.number ?? prev?.number ?? null,
-          status: result.data.status ?? prev?.status ?? 'waiting',
+          status: normalizeJoinStatus(result.data.status) ?? prev?.status ?? 'waiting',
           activeReservationId: prev?.activeReservationId ?? null
         }));
       }
@@ -545,8 +553,18 @@ export default function SmartQueueGate() {
 
     try {
       await ensureQueueUserId();
-      const startFn = httpsCallable(functions, 'startRegistrationSession');
-      const result: any = await startFn({ schoolId, roundId: myEntry?.roundId || selectedRound?.id, requestId: startRequestIdRef.current });
+      const startFn = httpsCallable<
+        { schoolId: string; roundId?: string; requestId: string | null },
+        StartRegistrationResponse
+      >(functions, 'startRegistrationSession');
+      const result = await callCallableWithRetry(
+        startFn,
+        { schoolId, roundId: myEntry?.roundId || selectedRound?.id, requestId: startRequestIdRef.current },
+        {
+          maxAttempts: 4,
+          getDelayMs: ({ attempt }) => 1000 + Math.floor(Math.random() * 1000) + (attempt - 1) * 2000
+        }
+      );
 
       if (!result.data?.success) {
         throw new Error('?깅줉 ?몄뀡 ?앹꽦???ㅽ뙣?덉뒿?덈떎.');
@@ -1031,4 +1049,10 @@ function FlowCard({
     </div>
   );
 }
+function normalizeJoinStatus(status: JoinQueueResponse['status'] | undefined): QueueEntry['status'] {
+  if (status === 'waiting' || status === 'eligible' || status === 'consumed' || status === 'expired') {
+    return status;
+  }
 
+  return 'waiting';
+}

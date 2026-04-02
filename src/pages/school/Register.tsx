@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { AlertTriangle, CheckCircle2, ChevronDown, Clock } from 'lucide-react';
 import { useSchool } from '../../contexts/SchoolContext';
+import { callCallableWithRetry, isTransientCallableError } from '../../lib/callable';
 import { createRequestId } from '../../lib/requestId';
 import { loadStoredQueueIdentity, markRecentQueueExpiry } from '../../lib/queue';
 
@@ -15,6 +16,17 @@ interface RegisterFormInputs {
   schoolName?: string;
   grade?: string;
   address?: string;
+}
+
+interface ReservationSessionResponse {
+  success?: boolean;
+  expiresAt?: number;
+  roundId?: string | null;
+}
+
+interface ConfirmReservationResponse {
+  success?: boolean;
+  status?: 'confirmed' | 'waitlisted';
 }
 
 interface TermsAccordionProps {
@@ -56,6 +68,8 @@ const TermsAccordion = ({ title, content, isOpen, onToggle, isChecked, onCheck }
   </div>
 );
 
+const SUBMIT_GRACE_MS = 90 * 1000;
+
 export default function RegisterPage() {
   const { schoolId } = useParams<{ schoolId: string }>();
   const { schoolConfig } = useSchool();
@@ -96,8 +110,18 @@ export default function RegisterPage() {
           return;
         }
 
-        const getReservationSessionFn = httpsCallable(getFunctions(), 'getReservationSession');
-        const result: any = await getReservationSessionFn({ schoolId, sessionId: storedSessionId });
+        const getReservationSessionFn = httpsCallable<
+          { schoolId: string; sessionId: string },
+          ReservationSessionResponse
+        >(getFunctions(), 'getReservationSession');
+        const result = await callCallableWithRetry(
+          getReservationSessionFn,
+          { schoolId, sessionId: storedSessionId },
+          {
+            maxAttempts: 4,
+            getDelayMs: ({ attempt }) => 800 + Math.floor(Math.random() * 800) + (attempt - 1) * 1600
+          }
+        );
 
         if (!result.data?.success) {
           throw new Error('Registration session is invalid.');
@@ -139,8 +163,8 @@ export default function RegisterPage() {
       return;
     }
 
-    const handleExpired = () => {
-      if (navigatingRef.current) return;
+      const handleExpired = () => {
+        if (navigatingRef.current) return;
 
       navigatingRef.current = true;
       localStorage.removeItem(`registrationSessionId_${schoolId}`);
@@ -166,13 +190,19 @@ export default function RegisterPage() {
       window.setTimeout(() => navigate(`/${schoolId}/gate`), 2500);
     };
 
-    const tick = () => {
-      const remaining = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
-      setTimeLeft(remaining);
-      if (remaining <= 0) {
-        handleExpired();
-      }
-    };
+      const tick = () => {
+        const now = Date.now();
+        const remaining = Math.max(0, Math.floor((expiresAt - now) / 1000));
+        setTimeLeft(remaining);
+        if (remaining <= 0) {
+          if (submitting && now <= expiresAt + SUBMIT_GRACE_MS) {
+            setSoftNoticeTone('info');
+            setSoftNotice('제출을 처리 중입니다. 응답이 돌아올 때까지 이 화면을 닫지 말아 주세요.');
+            return;
+          }
+          handleExpired();
+        }
+      };
 
     const timer = window.setInterval(tick, 1000);
 
@@ -195,7 +225,7 @@ export default function RegisterPage() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [expiresAt, navigate, schoolId, sessionId, slotReserved]);
+  }, [expiresAt, navigate, schoolId, sessionId, slotReserved, submitting]);
 
   const handleAllAgree = (checked: boolean) => {
     setTermsAgreed({ privacy: checked, thirdParty: checked, sms: checked });
@@ -218,7 +248,25 @@ export default function RegisterPage() {
     }
 
     try {
-      const confirmReservationFn = httpsCallable(getFunctions(), 'confirmReservation');
+      const confirmReservationFn = httpsCallable<
+        {
+          schoolId: string;
+          sessionId: string;
+          formData: {
+            studentName: string;
+            phone: string;
+            phoneLast4: string;
+            email: string | null;
+            studentId: string | null;
+            schoolName: string | null;
+            grade: string | null;
+            address: string | null;
+            agreedSms: boolean;
+          };
+          requestId: string | null;
+        },
+        ConfirmReservationResponse
+      >(getFunctions(), 'confirmReservation');
       const formData = {
         studentName: data.studentName,
         phone: data.phone,
@@ -231,12 +279,20 @@ export default function RegisterPage() {
         agreedSms: true
       };
 
-      const result: any = await confirmReservationFn({
-        schoolId,
-        sessionId,
-        formData,
-        requestId: confirmRequestIdRef.current
-      });
+      const result = await callCallableWithRetry(
+        confirmReservationFn,
+        {
+          schoolId,
+          sessionId,
+          formData,
+          requestId: confirmRequestIdRef.current
+        },
+        {
+          maxAttempts: 5,
+          shouldRetry: (error) => isTransientCallableError(error),
+          getDelayMs: ({ attempt }) => 1200 + Math.floor(Math.random() * 1200) + (attempt - 1) * 2200
+        }
+      );
 
       if (!result.data?.success) {
         throw new Error('Confirmation failed');

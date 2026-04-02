@@ -13,6 +13,14 @@
       "collectionGroup": "registrations",
       "queryScope": "COLLECTION",
       "fields": [
+        {"fieldPath": "admissionRoundId", "order": "ASCENDING"},
+        {"fieldPath": "status", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "registrations",
+      "queryScope": "COLLECTION",
+      "fields": [
         {"fieldPath": "phone", "order": "ASCENDING"},
         {"fieldPath": "status", "order": "ASCENDING"}
       ]

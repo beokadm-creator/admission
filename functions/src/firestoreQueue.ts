@@ -7,7 +7,7 @@ import { createHash, randomBytes } from 'crypto';
 const hotPathRuntime = functionsV1.runWith({
   timeoutSeconds: 120,
   memory: '512MB',
-  minInstances: 3,
+  minInstances: 5,
   maxInstances: 200
 });
 const heartbeatRuntime = functionsV1.runWith({
@@ -15,10 +15,16 @@ const heartbeatRuntime = functionsV1.runWith({
   memory: '256MB',
   maxInstances: 100
 });
+const schedulerRuntime = functionsV1.runWith({
+  timeoutSeconds: 300,
+  memory: '1GB',
+  minInstances: 1,
+  maxInstances: 20
+});
 const standardRuntime = functionsV1.runWith({
   timeoutSeconds: 120,
   memory: '512MB',
-  minInstances: 1,
+  minInstances: 2,
   maxInstances: 80
 });
 
@@ -120,6 +126,7 @@ interface NormalizedCallableRequest {
 }
 
 const DEFAULT_SESSION_MS = 3 * 60 * 1000;
+const SESSION_SUBMIT_GRACE_MS = 90 * 1000;
 const WAITING_PRESENCE_TIMEOUT_MS = 90 * 1000;
 const ELIGIBLE_PRESENCE_TIMEOUT_MS = 60 * 1000;
 const ACTIVE_QUEUE_ENTRY_STATUSES: QueueEntryStatus[] = ['waiting', 'eligible'];
@@ -327,6 +334,10 @@ function reservationsRef(db: admin.firestore.Firestore, schoolId: string) {
   return db.collection(`schools/${schoolId}/reservations`);
 }
 
+function registrationsRef(db: admin.firestore.Firestore, schoolId: string) {
+  return db.collection(`schools/${schoolId}/registrations`);
+}
+
 function requestLockRef(db: admin.firestore.Firestore, schoolId: string, requestId: string) {
   return db.doc(`schools/${schoolId}/requestLocks/${requestId}`);
 }
@@ -430,6 +441,72 @@ function getQueueAdvanceAmount(queueState: QueueStateDoc, limit = Number.MAX_SAF
     0,
     Math.min(waitingCount, queueState.availableCapacity, admissionHeadroom, limit)
   );
+}
+
+interface QueueLiveMetrics {
+  activeReservationCount: number;
+  pendingAdmissionCount: number;
+  confirmedCount: number;
+  waitlistedCount: number;
+  availableCapacity: number;
+}
+
+async function loadQueueLiveMetrics(
+  transaction: admin.firestore.Transaction,
+  db: admin.firestore.Firestore,
+  schoolId: string,
+  round: AdmissionRoundConfig,
+  schoolData: admin.firestore.DocumentData
+): Promise<QueueLiveMetrics> {
+  const { totalCapacity } = getRoundCapacity(round);
+  const [activeReservationsSnapshot, eligibleEntriesSnapshot, confirmedSnapshot, waitlistedSnapshot] = await Promise.all([
+    transaction.get(
+      reservationsRef(db, schoolId)
+        .where('roundId', '==', round.id)
+        .where('status', 'in', ACTIVE_RESERVATION_STATUSES)
+    ),
+    transaction.get(
+      queueEntriesRef(db, schoolId)
+        .where('roundId', '==', round.id)
+        .where('status', '==', 'eligible')
+    ),
+    transaction.get(
+      registrationsRef(db, schoolId)
+        .where('admissionRoundId', '==', round.id)
+        .where('status', '==', 'confirmed')
+    ),
+    transaction.get(
+      registrationsRef(db, schoolId)
+        .where('admissionRoundId', '==', round.id)
+        .where('status', '==', 'waitlisted')
+    )
+  ]);
+
+  const activeReservationCount = activeReservationsSnapshot.size;
+  const pendingAdmissionCount = eligibleEntriesSnapshot.size;
+  const confirmedCount = confirmedSnapshot.size;
+  const waitlistedCount = waitlistedSnapshot.size;
+
+  return {
+    activeReservationCount,
+    pendingAdmissionCount,
+    confirmedCount,
+    waitlistedCount,
+    availableCapacity: Math.max(0, totalCapacity - confirmedCount - waitlistedCount - activeReservationCount)
+  };
+}
+
+function getAdvanceLimitFromCounts(
+  queueState: QueueStateDoc,
+  counts: QueueLiveMetrics,
+  limit = Number.MAX_SAFE_INTEGER
+) {
+  const admissionHeadroom = Math.max(
+    0,
+    queueState.maxActiveSessions - counts.activeReservationCount - counts.pendingAdmissionCount
+  );
+
+  return Math.max(0, Math.min(counts.availableCapacity, admissionHeadroom, limit));
 }
 
 async function loadEntriesForPromotion(
@@ -1049,8 +1126,8 @@ export const joinQueue = hotPathRuntime.https.onCall(async (request: any, legacy
 
   const ipRateLimit = await checkRateLimit(
     db,
-    getRateLimitIdentifier(rawRequest, `joinQueue_ip_${auth.uid}`),
-    20,
+    `joinQueue_${schoolId}_${getRateLimitIdentifier(rawRequest, `joinQueue_ip_${auth.uid}`)}`,
+    120,
     60000
   );
   if (!ipRateLimit.allowed) {
@@ -1321,12 +1398,6 @@ export const startRegistrationSession = standardRuntime.https.onCall(async (requ
     }
 
     let queueState = buildQueueStateDoc(schoolData, round, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
-    if (queueState.availableCapacity <= 0) {
-      throw new functions.https.HttpsError('resource-exhausted', '?꾩옱 ?댁슜 媛?ν븳 ?좎껌 ?몄썝???놁뒿?덈떎.');
-    }
-    if (getAvailableWriterSlots(queueState) <= 0) {
-      throw new functions.https.HttpsError('resource-exhausted', '?꾩옱 ?묒꽦 媛?ν븳 ?몄썝??媛??李쇱뒿?덈떎. ?좎떆 ???ㅼ떆 ?쒕룄??二쇱꽭??');
-    }
 
     const now = Date.now();
     let queueNumber: number | null = null;
@@ -1360,22 +1431,39 @@ export const startRegistrationSession = standardRuntime.https.onCall(async (requ
       if (queueEntry.status !== 'eligible' || queueEntry.number == null) {
         throw new functions.https.HttpsError('failed-precondition', '?袁⑹춦 ?醫롪퍕 揶쎛?館釉???뽮퐣揶쎛 ?袁⑤뻸??덈뼄.');
       }
-      if (queueEntry.number > queueState.currentNumber) {
-        throw new functions.https.HttpsError('failed-precondition', '?꾩쭅 ?좎껌 媛?ν븳 ?쒖꽌媛 ?꾨떃?덈떎.');
-      }
 
     }
 
-    const nextState = {
-      ...queueState,
-      activeReservationCount: queueState.activeReservationCount + 1,
-      pendingAdmissionCount: Math.max(0, queueState.pendingAdmissionCount - (isQueueEnabled(schoolData) ? 1 : 0)),
-      availableCapacity: Math.max(0, queueState.availableCapacity - 1),
-      updatedAt: now
-    };
-    const nextAdvance = getQueueAdvanceAmount(nextState, 1);
+    const liveMetrics = await loadQueueLiveMetrics(transaction, db, schoolId, round, schoolData);
+    queueState = buildQueueStateDoc(
+      schoolData,
+      round,
+      stateSnapshot.exists
+        ? {
+            ...(stateSnapshot.data() as QueueStateDoc),
+            ...liveMetrics
+          }
+        : liveMetrics
+    );
+    if (liveMetrics.availableCapacity <= 0) {
+      throw new functions.https.HttpsError('resource-exhausted', '?꾩옱 ?댁슜 媛?ν븳 ?좎껌 ?몄썝???놁뒿?덈떎.');
+    }
+    if (liveMetrics.activeReservationCount >= queueState.maxActiveSessions) {
+      throw new functions.https.HttpsError('resource-exhausted', '?꾩옱 ?묒꽦 媛?ν븳 ?몄썝??媛??李쇱뒿?덈떎. ?좎떆 ???ㅼ떆 ?쒕룄??二쇱꽭??');
+    }
+
+    const nextAdvance = getAdvanceLimitFromCounts(
+      queueState,
+      {
+        ...liveMetrics,
+        activeReservationCount: liveMetrics.activeReservationCount + 1,
+        pendingAdmissionCount: Math.max(0, liveMetrics.pendingAdmissionCount - (isQueueEnabled(schoolData) ? 1 : 0)),
+        availableCapacity: Math.max(0, liveMetrics.availableCapacity - 1)
+      },
+      1
+    );
     const promotionDocs = nextAdvance > 0
-      ? await loadEntriesForPromotion(transaction, db, schoolId, round.id, nextState.currentNumber, nextAdvance)
+      ? await loadEntriesForPromotion(transaction, db, schoolId, round.id, queueState.currentNumber, nextAdvance)
       : [];
 
     if (isQueueEnabled(schoolData)) {
@@ -1418,12 +1506,6 @@ export const startRegistrationSession = standardRuntime.https.onCall(async (requ
         updatedAt: now
       } as QueueIdentityLockDoc, { merge: true });
     }
-    transaction.set(stateRef, {
-      ...nextState,
-      pendingAdmissionCount: nextState.pendingAdmissionCount + promotionDocs.length,
-      currentNumber: nextState.currentNumber + promotionDocs.length,
-      lastAdvancedAt: promotionDocs.length > 0 ? now : nextState.lastAdvancedAt
-    }, { merge: true });
     promoteEligibleEntries(transaction, promotionDocs, now);
 
     const result = {
@@ -1477,7 +1559,7 @@ export const getReservationSession = functionsV1.https.onCall(async (request: an
     throw new functions.https.HttpsError('failed-precondition', '?좏슚???깅줉 ?몄뀡???꾨떃?덈떎.');
   }
 
-  if (Date.now() > reservation.expiresAt) {
+  if (Date.now() > reservation.expiresAt + SESSION_SUBMIT_GRACE_MS) {
     await expireReservationDocument(db, schoolId, sessionId, auth.uid);
     throw new functions.https.HttpsError('deadline-exceeded', '?깅줉 ?몄뀡??留뚮즺?섏뿀?듬땲??');
   }
@@ -1675,7 +1757,7 @@ export const confirmReservation = standardRuntime.https.onCall(async (request: a
     if (reservation.status !== 'reserved' && reservation.status !== 'processing') {
       throw new functions.https.HttpsError('failed-precondition', '?좏슚???깅줉 ?몄뀡???꾨떃?덈떎.');
     }
-    if (now > reservation.expiresAt) {
+    if (now > reservation.expiresAt + SESSION_SUBMIT_GRACE_MS) {
       throw new functions.https.HttpsError('deadline-exceeded', '?깅줉 ?몄뀡??留뚮즺?섏뿀?듬땲??');
     }
 
@@ -1700,16 +1782,26 @@ export const confirmReservation = standardRuntime.https.onCall(async (request: a
     }
 
     const { maxCapacity, waitlistCapacity } = getRoundCapacity(round);
-    const queueState = buildQueueStateDoc(schoolData, round, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
+    const liveMetrics = await loadQueueLiveMetrics(transaction, db, schoolId, round, schoolData);
+    const queueState = buildQueueStateDoc(
+      schoolData,
+      round,
+      stateSnapshot.exists
+        ? {
+            ...(stateSnapshot.data() as QueueStateDoc),
+            ...liveMetrics
+          }
+        : liveMetrics
+    );
 
     let status: 'confirmed' | 'waitlisted' = 'confirmed';
     let rank: number | null = null;
-    let nextConfirmedCount = queueState.confirmedCount;
-    let nextWaitlistedCount = queueState.waitlistedCount;
+    let nextConfirmedCount = liveMetrics.confirmedCount;
+    let nextWaitlistedCount = liveMetrics.waitlistedCount;
 
-    if (queueState.confirmedCount < maxCapacity) {
+    if (liveMetrics.confirmedCount < maxCapacity) {
       nextConfirmedCount += 1;
-    } else if (queueState.waitlistedCount < waitlistCapacity) {
+    } else if (liveMetrics.waitlistedCount < waitlistCapacity) {
       status = 'waitlisted';
       nextWaitlistedCount += 1;
       rank = nextWaitlistedCount;
@@ -1717,21 +1809,27 @@ export const confirmReservation = standardRuntime.https.onCall(async (request: a
       throw new functions.https.HttpsError('resource-exhausted', 'FULL_CAPACITY');
     }
 
-    const activeReservationCount = Math.max(0, queueState.activeReservationCount - 1);
-    const nextState = {
-      ...queueState,
-      confirmedCount: nextConfirmedCount,
-      waitlistedCount: nextWaitlistedCount,
-      activeReservationCount,
-      availableCapacity: Math.max(
-        0,
-        queueState.totalCapacity - nextConfirmedCount - nextWaitlistedCount - activeReservationCount
-      ),
-      updatedAt: now
-    };
-    const nextAdvance = getQueueAdvanceAmount(nextState, 1);
+    const currentEntry = queueEntrySnapshot.exists ? queueEntrySnapshot.data() as QueueEntryDoc : null;
+    const nextAdvance = getAdvanceLimitFromCounts(
+      queueState,
+      {
+        ...liveMetrics,
+        confirmedCount: nextConfirmedCount,
+        waitlistedCount: nextWaitlistedCount,
+        activeReservationCount: Math.max(0, liveMetrics.activeReservationCount - 1),
+        pendingAdmissionCount: Math.max(
+          0,
+          liveMetrics.pendingAdmissionCount - (currentEntry?.roundId === round.id && currentEntry.status === 'eligible' ? 1 : 0)
+        ),
+        availableCapacity: Math.max(
+          0,
+          queueState.totalCapacity - nextConfirmedCount - nextWaitlistedCount - Math.max(0, liveMetrics.activeReservationCount - 1)
+        )
+      },
+      1
+    );
     const promotionDocs = nextAdvance > 0
-      ? await loadEntriesForPromotion(transaction, db, schoolId, round.id, nextState.currentNumber, nextAdvance)
+      ? await loadEntriesForPromotion(transaction, db, schoolId, round.id, queueState.currentNumber, nextAdvance)
       : [];
 
     transaction.set(registrationRef, {
@@ -1767,17 +1865,10 @@ export const confirmReservation = standardRuntime.https.onCall(async (request: a
       registrationId: registrationRef.id,
       updatedAt: now
     } as QueueIdentityLockDoc, { merge: true });
-    transaction.set(stateRef, {
-      ...nextState,
-      pendingAdmissionCount: nextState.pendingAdmissionCount + promotionDocs.length,
-      currentNumber: nextState.currentNumber + promotionDocs.length,
-      lastAdvancedAt: promotionDocs.length > 0 ? now : nextState.lastAdvancedAt
-    }, { merge: true });
     promoteEligibleEntries(transaction, promotionDocs, now);
 
-    if (queueEntrySnapshot.exists) {
-      const queueEntry = queueEntrySnapshot.data() as QueueEntryDoc;
-      if (queueEntry.roundId === round.id) {
+    if (currentEntry) {
+      if (currentEntry.roundId === round.id) {
         transaction.set(queueEntryRef, {
           status: 'consumed',
           eligibleAt: null,
@@ -1842,7 +1933,7 @@ export const cleanupExpiredReservations = functionsV1.pubsub
     return { expiredCount, expiredQueueCount };
   });
 
-export const autoAdvanceQueue = functionsV1.pubsub
+export const autoAdvanceQueue = schedulerRuntime.pubsub
   .schedule('* * * * *')
   .timeZone('Asia/Seoul')
   .onRun(async () => {
@@ -1862,19 +1953,24 @@ export const autoAdvanceQueue = functionsV1.pubsub
 
       const advanced = await db.runTransaction(async (transaction) => {
         const stateSnapshot = await transaction.get(stateRef);
-        const queueState = buildQueueStateDoc(schoolData, round, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
+        const liveMetrics = await loadQueueLiveMetrics(transaction, db, schoolId, round, schoolData);
+        const queueState = buildQueueStateDoc(
+          schoolData,
+          round,
+          stateSnapshot.exists
+            ? {
+                ...(stateSnapshot.data() as QueueStateDoc),
+                ...liveMetrics
+              }
+            : liveMetrics
+        );
         const nowMs = Date.now();
 
-        if (queueState.availableCapacity <= 0 || getAvailableWriterSlots(queueState) <= 0) {
+        if (liveMetrics.availableCapacity <= 0 || liveMetrics.activeReservationCount >= queueState.maxActiveSessions) {
           return 0;
         }
 
-        // Same headroom-based approach as advanceQueueForSchool — no dependency
-        // on lastAssignedNumber. Query queueEntries directly for waiting entries.
-        const headroom = Math.min(
-          queueState.availableCapacity,
-          Math.max(0, queueState.maxActiveSessions - queueState.activeReservationCount - queueState.pendingAdmissionCount)
-        );
+        const headroom = getAdvanceLimitFromCounts(queueState, liveMetrics);
         if (headroom <= 0) {
           return 0;
         }
@@ -1892,7 +1988,11 @@ export const autoAdvanceQueue = functionsV1.pubsub
 
         transaction.set(stateRef, {
           ...queueState,
-          pendingAdmissionCount: queueState.pendingAdmissionCount + promotedCount,
+          activeReservationCount: liveMetrics.activeReservationCount,
+          confirmedCount: liveMetrics.confirmedCount,
+          waitlistedCount: liveMetrics.waitlistedCount,
+          availableCapacity: liveMetrics.availableCapacity,
+          pendingAdmissionCount: liveMetrics.pendingAdmissionCount + promotedCount,
           currentNumber: queueState.currentNumber + promotedCount,
           lastAssignedNumber: maxPromotedNumber,
           lastAdvancedAt: nowMs,
