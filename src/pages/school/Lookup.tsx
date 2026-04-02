@@ -26,6 +26,8 @@ export default function LookupPage() {
   const [loading, setLoading] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [serviceLoading, setServiceLoading] = useState(false);
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [feedbackTone, setFeedbackTone] = useState<'success' | 'error'>('success');
 
   const handleLookup = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -33,6 +35,7 @@ export default function LookupPage() {
 
     setLoading(true);
     setError('');
+    setFeedbackMessage(null);
     setResult(null);
 
     try {
@@ -79,10 +82,12 @@ export default function LookupPage() {
       });
 
       setResult((previous) => (previous ? { ...previous, status: 'canceled' } : null));
-      window.alert('신청이 정상적으로 취소되었습니다.');
+      setFeedbackTone('success');
+      setFeedbackMessage('신청이 정상적으로 취소되었습니다.');
     } catch (cancelError: any) {
       console.error(cancelError);
-      window.alert(cancelError?.message || '취소 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
+      setFeedbackTone('error');
+      setFeedbackMessage(cancelError?.message || '취소 처리 중 연결이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.');
     } finally {
       setCanceling(false);
     }
@@ -109,7 +114,8 @@ export default function LookupPage() {
       window.location.href = accessUrl;
     } catch (serviceError: any) {
       console.error(serviceError);
-      window.alert(serviceError?.message || '서비스 이동 중 오류가 발생했습니다.');
+      setFeedbackTone('error');
+      setFeedbackMessage(serviceError?.message || '서비스 이동 중 연결이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.');
     } finally {
       setServiceLoading(false);
     }
@@ -184,6 +190,27 @@ export default function LookupPage() {
           <div className="mb-6 flex items-start rounded-xl border border-red-100 bg-red-50 p-4">
             <AlertCircle className="mr-3 mt-0.5 h-5 w-5 shrink-0 text-red-600" />
             <p className="text-sm font-medium leading-relaxed text-red-800">{error}</p>
+          </div>
+        )}
+
+        {feedbackMessage && (
+          <div
+            className={`mb-6 flex items-start rounded-xl border p-4 ${
+              feedbackTone === 'success' ? 'border-emerald-100 bg-emerald-50' : 'border-amber-100 bg-amber-50'
+            }`}
+          >
+            <AlertCircle
+              className={`mr-3 mt-0.5 h-5 w-5 shrink-0 ${
+                feedbackTone === 'success' ? 'text-emerald-600' : 'text-amber-600'
+              }`}
+            />
+            <p
+              className={`text-sm font-medium leading-relaxed ${
+                feedbackTone === 'success' ? 'text-emerald-800' : 'text-amber-800'
+              }`}
+            >
+              {feedbackMessage}
+            </p>
           </div>
         )}
 

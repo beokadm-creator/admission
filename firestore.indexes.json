@@ -34,6 +34,14 @@
       ]
     },
     {
+      "collectionGroup": "reservations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "roundId", "order": "ASCENDING"},
+        {"fieldPath": "status", "order": "ASCENDING"}
+      ]
+    },
+    {
       "collectionGroup": "queueEntries",
       "queryScope": "COLLECTION",
       "fields": [
@@ -45,6 +53,24 @@
       "collectionGroup": "queueEntries",
       "queryScope": "COLLECTION",
       "fields": [
+        {"fieldPath": "roundId", "order": "ASCENDING"},
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "number", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "queueEntries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "lastSeenAt", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "queueEntries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "roundId", "order": "ASCENDING"},
         {"fieldPath": "status", "order": "ASCENDING"},
         {"fieldPath": "lastSeenAt", "order": "ASCENDING"}
       ]

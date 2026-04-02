@@ -71,7 +71,7 @@ service cloud.firestore {
       }
 
       match /queueState/{docId} {
-        allow read: if true;
+        allow read: if isAuthenticated();
         allow create: if isQueueStateAdminCreate(schoolId);
         allow update: if isQueueStateAdminUpdate(schoolId);
         allow delete: if false;
@@ -88,6 +88,10 @@ service cloud.firestore {
       }
 
       match /requestLocks/{requestId} {
+        allow read, write: if false;
+      }
+
+      match /queueIdentityLocks/{lockId} {
         allow read, write: if false;
       }
 

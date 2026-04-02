@@ -1,46 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { getFunctions, httpsCallable } from 'firebase/functions';
+import { AlertTriangle, CheckCircle2, ChevronDown, Clock } from 'lucide-react';
 import { useSchool } from '../../contexts/SchoolContext';
-import { AlertTriangle, Clock, CheckCircle2, ChevronDown } from 'lucide-react';
 import { createRequestId } from '../../lib/requestId';
-
-interface TermsAccordionProps {
-  title: string;
-  content: string;
-  isOpen: boolean;
-  onToggle: () => void;
-  isChecked: boolean;
-  onCheck: (checked: boolean) => void;
-}
-
-const TermsAccordion = ({ title, content, isOpen, onToggle, isChecked, onCheck }: TermsAccordionProps) => (
-  <div className={`border rounded-lg mb-3 overflow-hidden transition-all duration-200 ${isOpen ? 'border-snu-blue/30 shadow-sm' : 'border-gray-200 hover:border-snu-blue/20'}`}>
-    <div className={`flex items-center p-4 cursor-pointer select-none transition-colors ${isOpen ? 'bg-snu-blue/5' : 'bg-gray-50/50 hover:bg-gray-50'}`} onClick={onToggle}>
-      <div className="relative flex items-center justify-center rounded-full mr-3" onClick={(e) => e.stopPropagation()}>
-        <input
-          type="checkbox"
-          checked={isChecked}
-          onChange={(e) => onCheck(e.target.checked)}
-          className="peer relative appearance-none w-6 h-6 min-h-[24px] min-w-[24px] border-2 border-gray-300 rounded-sm cursor-pointer transition-all checked:border-snu-blue checked:bg-snu-blue focus:outline-none focus:ring-2 focus:ring-snu-blue/30 focus:ring-offset-1"
-        />
-        <svg className="absolute w-3 h-3 text-white pointer-events-none opacity-0 peer-checked:opacity-100 transition-opacity" viewBox="0 0 14 10" fill="none">
-          <path d="M1 5L4.5 8.5L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </div>
-      <span className="font-bold text-sm flex-1 text-gray-800">{title}</span>
-      <span className="text-gray-400">
-        <ChevronDown className={`w-5 h-5 transform transition-transform duration-200 ${isOpen ? 'rotate-180 text-snu-blue' : ''}`} />
-      </span>
-    </div>
-    {isOpen && (
-      <div className="p-4 text-base leading-relaxed text-gray-700 whitespace-pre-wrap border-t border-gray-100 bg-white max-h-48 overflow-y-auto">
-        {content || '내용이 없습니다.'}
-      </div>
-    )}
-  </div>
-);
+import { loadStoredQueueIdentity, markRecentQueueExpiry } from '../../lib/queue';
 
 interface RegisterFormInputs {
   studentName: string;
@@ -52,10 +17,50 @@ interface RegisterFormInputs {
   address?: string;
 }
 
+interface TermsAccordionProps {
+  title: string;
+  content: string;
+  isOpen: boolean;
+  onToggle: () => void;
+  isChecked: boolean;
+  onCheck: (checked: boolean) => void;
+}
+
+const TermsAccordion = ({ title, content, isOpen, onToggle, isChecked, onCheck }: TermsAccordionProps) => (
+  <div className={`mb-3 overflow-hidden rounded-lg border transition-all duration-200 ${isOpen ? 'border-snu-blue/30 shadow-sm' : 'border-gray-200 hover:border-snu-blue/20'}`}>
+    <div
+      className={`flex cursor-pointer select-none items-center p-4 transition-colors ${isOpen ? 'bg-snu-blue/5' : 'bg-gray-50/50 hover:bg-gray-50'}`}
+      onClick={onToggle}
+    >
+      <div className="relative mr-3 flex items-center justify-center rounded-full" onClick={(event) => event.stopPropagation()}>
+        <input
+          type="checkbox"
+          checked={isChecked}
+          onChange={(event) => onCheck(event.target.checked)}
+          className="peer relative h-6 min-h-[24px] w-6 min-w-[24px] cursor-pointer appearance-none rounded-sm border-2 border-gray-300 transition-all checked:border-snu-blue checked:bg-snu-blue focus:outline-none focus:ring-2 focus:ring-snu-blue/30 focus:ring-offset-1"
+        />
+        <svg className="pointer-events-none absolute h-3 w-3 text-white opacity-0 transition-opacity peer-checked:opacity-100" viewBox="0 0 14 10" fill="none">
+          <path d="M1 5L4.5 8.5L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
+      <span className="flex-1 text-sm font-bold text-gray-800">{title}</span>
+      <span className="text-gray-400">
+        <ChevronDown className={`h-5 w-5 transform transition-transform duration-200 ${isOpen ? 'rotate-180 text-snu-blue' : ''}`} />
+      </span>
+    </div>
+    {isOpen && (
+      <div className="max-h-48 overflow-y-auto whitespace-pre-wrap border-t border-gray-100 bg-white p-4 text-base leading-relaxed text-gray-700">
+        {content || '내용이 없습니다.'}
+      </div>
+    )}
+  </div>
+);
+
 export default function RegisterPage() {
   const { schoolId } = useParams<{ schoolId: string }>();
   const { schoolConfig } = useSchool();
   const navigate = useNavigate();
+
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState(0);
   const [sessionDuration, setSessionDuration] = useState(180);
@@ -67,28 +72,31 @@ export default function RegisterPage() {
   const [submitting, setSubmitting] = useState(false);
   const [expiredToast, setExpiredToast] = useState(false);
   const [softNotice, setSoftNotice] = useState<string | null>(null);
+  const [softNoticeTone, setSoftNoticeTone] = useState<'info' | 'error'>('info');
+
   const navigatingRef = useRef(false);
   const expireRequestIdRef = useRef<string | null>(null);
   const confirmRequestIdRef = useRef<string | null>(null);
 
-  const { register, handleSubmit, formState: { errors } } = useForm<RegisterFormInputs>();
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    formState: { errors }
+  } = useForm<RegisterFormInputs>();
 
   useEffect(() => {
-    if (!schoolId) {
-      return;
-    }
+    if (!schoolId) return;
 
     const validateSession = async () => {
       try {
         const storedSessionId = localStorage.getItem(`registrationSessionId_${schoolId}`);
         if (!storedSessionId) {
-          navigate(`/${schoolId}`);
+          navigate(`/${schoolId}/gate`);
           return;
         }
 
-        const functions = getFunctions();
-        const getReservationSessionFn = httpsCallable(functions, 'getReservationSession');
-        // userId는 서버에서 context.auth.uid로 처리
+        const getReservationSessionFn = httpsCallable(getFunctions(), 'getReservationSession');
         const result: any = await getReservationSessionFn({ schoolId, sessionId: storedSessionId });
 
         if (!result.data?.success) {
@@ -99,21 +107,32 @@ export default function RegisterPage() {
         setExpiresAt(result.data.expiresAt);
         setSlotReserved(true);
         setReservingSlot(false);
+
+        const activeRoundId = typeof result.data.roundId === 'string' ? result.data.roundId : null;
+        if (activeRoundId) {
+          const storedIdentity = loadStoredQueueIdentity(schoolId, activeRoundId);
+          if (storedIdentity) {
+            setValue('studentName', storedIdentity.studentName);
+            setValue('phone', storedIdentity.phone);
+          }
+        }
+
         const remaining = Math.max(0, Math.floor((result.data.expiresAt - Date.now()) / 1000));
-        setSessionDuration(remaining);
+        setSessionDuration(remaining || 180);
         setTimeLeft(remaining);
-      } catch (error: any) {
+      } catch (error) {
         console.error('[ReservationSession] Error:', error);
         setReservingSlot(false);
         localStorage.removeItem(`registrationSessionId_${schoolId}`);
         localStorage.removeItem(`registrationExpiresAt_${schoolId}`);
-        setSoftNotice('?? ?? ??? ?????? ???? ?? ?????. ??? ???? ?????.');
+        setSoftNoticeTone('error');
+        setSoftNotice('신청 가능 상태를 확인하지 못했습니다. 대기열 화면으로 다시 안내해 드릴게요.');
         window.setTimeout(() => navigate(`/${schoolId}/gate`), 1200);
       }
     };
 
-    validateSession();
-  }, [schoolId, navigate]);
+    void validateSession();
+  }, [navigate, schoolId, setValue]);
 
   useEffect(() => {
     if (!slotReserved || !sessionId || !schoolId) {
@@ -122,54 +141,61 @@ export default function RegisterPage() {
 
     const handleExpired = () => {
       if (navigatingRef.current) return;
+
       navigatingRef.current = true;
       localStorage.removeItem(`registrationSessionId_${schoolId}`);
       localStorage.removeItem(`registrationExpiresAt_${schoolId}`);
+      markRecentQueueExpiry(schoolId);
       setExpiredToast(true);
 
-      // 서버에 만료 알림 → 슬롯 반환 + 대기열 entry 삭제 보장
-      if (sessionId) {
-        try {
-          const fns = getFunctions();
-          if (!expireRequestIdRef.current) {
-            expireRequestIdRef.current = createRequestId('forceExpire');
-          }
-          httpsCallable(fns, 'forceExpireSession')({ schoolId, sessionId, requestId: expireRequestIdRef.current }).catch(() => {});
-        } catch {
-          /* 이미 만료되었을 수 있으므로 무시 */
+      try {
+        const functions = getFunctions();
+        if (!expireRequestIdRef.current) {
+          expireRequestIdRef.current = createRequestId('forceExpire');
         }
+
+        void httpsCallable(functions, 'forceExpireSession')({
+          schoolId,
+          sessionId,
+          requestId: expireRequestIdRef.current
+        }).catch(() => {});
+      } catch {
+        // Ignore cleanup errors when the session has already expired.
       }
 
-      setTimeout(() => navigate(`/${schoolId}/gate`), 2500);
+      window.setTimeout(() => navigate(`/${schoolId}/gate`), 2500);
     };
 
     const tick = () => {
       const remaining = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
       setTimeLeft(remaining);
-      if (remaining <= 0) handleExpired();
+      if (remaining <= 0) {
+        handleExpired();
+      }
     };
 
-    const timer = setInterval(tick, 1000);
+    const timer = window.setInterval(tick, 1000);
 
-    // iOS Safari 백그라운드 복귀 시 타이머가 지연되는 문제 대응:
-    // 앱 전환 후 돌아왔을 때 즉시 만료 여부를 재확인합니다.
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') tick();
+      if (document.visibilityState === 'visible') {
+        tick();
+      }
     };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = '';
     };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('beforeunload', handleBeforeUnload);
 
     return () => {
-      clearInterval(timer);
+      window.clearInterval(timer);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [slotReserved, sessionId, expiresAt, schoolId, navigate]);
+  }, [expiresAt, navigate, schoolId, sessionId, slotReserved]);
 
   const handleAllAgree = (checked: boolean) => {
     setTermsAgreed({ privacy: checked, thirdParty: checked, sms: checked });
@@ -181,7 +207,8 @@ export default function RegisterPage() {
     }
 
     if (!termsAgreed.privacy || !termsAgreed.thirdParty || !termsAgreed.sms) {
-      alert('모든 필수 약관에 동의해 주십시오.');
+      setSoftNoticeTone('error');
+      setSoftNotice('필수 약관에 모두 동의해 주셔야 신청을 완료할 수 있습니다.');
       return;
     }
 
@@ -191,10 +218,7 @@ export default function RegisterPage() {
     }
 
     try {
-      const functions = getFunctions();
-      const confirmReservationFn = httpsCallable(functions, 'confirmReservation');
-
-      // userId는 서버에서 context.auth.uid로 처리, 클라이언트 전달 불필요
+      const confirmReservationFn = httpsCallable(getFunctions(), 'confirmReservation');
       const formData = {
         studentName: data.studentName,
         phone: data.phone,
@@ -228,15 +252,19 @@ export default function RegisterPage() {
       if (error?.code === 'functions/deadline-exceeded') {
         localStorage.removeItem(`registrationSessionId_${schoolId}`);
         localStorage.removeItem(`registrationExpiresAt_${schoolId}`);
-        setSoftNotice('?? ??? ???????. ?? ???? ??? ???.');
+        setSoftNoticeTone('error');
+        setSoftNotice('입력 시간이 만료되었습니다. 대기열 화면으로 다시 안내해 드릴게요.');
         navigate(`/${schoolId}/gate`);
       } else if (error?.code === 'functions/failed-precondition') {
-        setSoftNotice('??? ??? ?? ??? ????. ??? ???? ?????.');
+        setSoftNoticeTone('error');
+        setSoftNotice('현재 신청을 진행할 수 없는 상태입니다. 대기열에서 다시 확인해 주세요.');
         navigate(`/${schoolId}/gate`);
       } else if (error?.code === 'functions/already-exists') {
-        alert('이미 동일한 전화번호로 신청된 내역이 있습니다. 신청 조회 페이지에서 확인해주세요.');
+        setSoftNoticeTone('error');
+        setSoftNotice('이미 같은 연락처로 접수된 신청 내역이 있습니다. 신청 조회 화면에서 상태를 확인해 주세요.');
       } else {
-        alert(error?.message || '신청 처리 중 오류가 발생했습니다. 다시 시도해주세요.');
+        setSoftNoticeTone('error');
+        setSoftNotice(error?.message || '신청 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.');
       }
     } finally {
       setSubmitting(false);
@@ -249,23 +277,23 @@ export default function RegisterPage() {
     return `${minutes}:${secondsLeft.toString().padStart(2, '0')}`;
   };
 
-  const getTimeColor = () => {
+  const timeColor = useMemo<'green' | 'yellow' | 'red'>(() => {
     if (timeLeft > 120) return 'green';
     if (timeLeft > 60) return 'yellow';
     return 'red';
-  };
+  }, [timeLeft]);
 
   if (expiredToast) {
     return (
-      <div className="min-h-screen bg-snu-gray flex items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-lg shadow-md border border-gray-100 text-center max-w-sm w-full">
-          <div className="w-16 h-16 mx-auto mb-5 flex items-center justify-center rounded-full bg-amber-50 border border-amber-100">
-            <Clock className="w-8 h-8 text-amber-500" />
+      <div className="flex min-h-screen items-center justify-center bg-snu-gray p-4">
+        <div className="w-full max-w-sm rounded-lg border border-gray-100 bg-white p-8 text-center shadow-md">
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full border border-amber-100 bg-amber-50">
+            <Clock className="h-8 w-8 text-amber-500" />
           </div>
-          <h3 className="text-xl font-bold text-gray-900">입력 순서가 만료되었습니다</h3>
-          <p className="text-sm text-gray-400 mt-2 font-medium">메인 페이지로 이동합니다...</p>
-          <div className="mt-5 w-full h-1 bg-gray-100 rounded-full overflow-hidden">
-            <div className="h-full bg-amber-400 animate-[shrink_2.5s_linear_forwards]" style={{ width: '100%' }} />
+          <h3 className="text-xl font-bold text-gray-900">입력 시간이 만료되었습니다.</h3>
+          <p className="mt-2 text-sm font-medium text-gray-400">대기열 화면으로 이동합니다.</p>
+          <div className="mt-5 h-1 w-full overflow-hidden rounded-full bg-gray-100">
+            <div className="h-full w-full animate-[shrink_2.5s_linear_forwards] bg-amber-400" />
           </div>
         </div>
       </div>
@@ -273,14 +301,27 @@ export default function RegisterPage() {
   }
 
   if (softNotice) {
+    const noticeStyle =
+      softNoticeTone === 'error'
+        ? {
+            panel: 'border-rose-100 bg-rose-50',
+            iconWrap: 'border-rose-200 bg-rose-100',
+            icon: 'text-rose-500'
+          }
+        : {
+            panel: 'border-amber-100 bg-amber-50',
+            iconWrap: 'border-amber-100 bg-amber-50',
+            icon: 'text-amber-500'
+          };
+
     return (
-      <div className="min-h-screen bg-snu-gray flex items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-lg shadow-md border border-gray-100 text-center max-w-sm w-full">
-          <div className="w-16 h-16 mx-auto mb-5 flex items-center justify-center rounded-full bg-amber-50 border border-amber-100">
-            <AlertTriangle className="w-8 h-8 text-amber-500" />
+      <div className="flex min-h-screen items-center justify-center bg-snu-gray p-4">
+        <div className={`w-full max-w-sm rounded-lg border p-8 text-center shadow-md ${noticeStyle.panel}`}>
+          <div className={`mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full border ${noticeStyle.iconWrap}`}>
+            <AlertTriangle className={`h-8 w-8 ${noticeStyle.icon}`} />
           </div>
           <h3 className="text-xl font-bold text-gray-900">안내</h3>
-          <p className="mt-3 text-sm leading-relaxed text-gray-500">{softNotice}</p>
+          <p className="mt-3 text-sm leading-relaxed text-gray-600">{softNotice}</p>
         </div>
       </div>
     );
@@ -288,14 +329,14 @@ export default function RegisterPage() {
 
   if (reservingSlot) {
     return (
-      <div className="min-h-screen bg-snu-gray flex items-center justify-center p-4">
-        <div className="bg-white p-8 sm:p-10 rounded-lg shadow-md border border-gray-100 text-center max-w-sm w-full">
-          <div className="relative w-16 h-16 mx-auto mb-6">
-            <div className="absolute inset-0 border-4 border-gray-100 rounded-full"></div>
-            <div className="absolute inset-0 border-4 border-snu-blue rounded-full border-t-transparent animate-spin"></div>
+      <div className="flex min-h-screen items-center justify-center bg-snu-gray p-4">
+        <div className="w-full max-w-sm rounded-lg border border-gray-100 bg-white p-8 text-center shadow-md sm:p-10">
+          <div className="relative mx-auto mb-6 h-16 w-16">
+            <div className="absolute inset-0 rounded-full border-4 border-gray-100" />
+            <div className="absolute inset-0 animate-spin rounded-full border-4 border-snu-blue border-t-transparent" />
           </div>
-          <h3 className="text-xl font-bold text-gray-900 tracking-tight">작성 권한을 확인하고 있습니다</h3>
-          <p className="text-sm text-gray-400 font-medium mt-2 uppercase tracking-widest">CONNECTING TO SNU...</p>
+          <h3 className="text-xl font-bold tracking-tight text-gray-900">신청 가능 상태를 확인하고 있습니다</h3>
+          <p className="mt-2 text-sm font-medium uppercase tracking-widest text-gray-400">CONNECTING TO SNU...</p>
         </div>
       </div>
     );
@@ -306,135 +347,171 @@ export default function RegisterPage() {
   }
 
   const isAllAgreed = termsAgreed.privacy && termsAgreed.thirdParty && termsAgreed.sms;
-  const timeColor = getTimeColor();
+  const progressPercent = Math.max(0, Math.min(100, (timeLeft / Math.max(sessionDuration, 1)) * 100));
+
   const colorStyles = {
     green: {
-      bg: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+      bg: 'border-emerald-100 bg-emerald-50 text-emerald-700',
       bar: 'bg-emerald-500',
-      icon: <CheckCircle2 className="w-5 h-5 text-emerald-600" />,
+      icon: <CheckCircle2 className="h-5 w-5 text-emerald-600" />,
       text: 'text-emerald-700'
     },
     yellow: {
-      bg: 'bg-amber-50 text-amber-700 border-amber-100',
+      bg: 'border-amber-100 bg-amber-50 text-amber-700',
       bar: 'bg-amber-500',
-      icon: <Clock className="w-5 h-5 text-amber-600" />,
+      icon: <Clock className="h-5 w-5 text-amber-600" />,
       text: 'text-amber-700'
     },
     red: {
-      bg: 'bg-red-50 text-red-700 border-red-100',
+      bg: 'border-red-100 bg-red-50 text-red-700',
       bar: 'bg-red-500',
-      icon: <AlertTriangle className="w-5 h-5 text-red-600" />,
+      icon: <AlertTriangle className="h-5 w-5 text-red-600" />,
       text: 'text-red-700'
     }
-  };
+  } as const;
 
   const currentStyle = colorStyles[timeColor];
-  const progressPercent = (timeLeft / sessionDuration) * 100;
 
   return (
-    <div className="min-h-screen bg-snu-gray flex flex-col items-center font-sans tracking-tight">
-      <div className="sticky top-0 z-50 w-full backdrop-blur-xl bg-white/95 border-b border-gray-100 shadow-sm transition-colors duration-300">
-        <div className="h-1 w-full bg-gray-100/50 overflow-hidden">
-          <div className={`${currentStyle.bar} h-full transition-all duration-1000 ease-linear`} style={{ width: `${progressPercent}%` }}></div>
+    <div className="flex min-h-screen flex-col items-center bg-snu-gray font-sans tracking-tight">
+      <div className="sticky top-0 z-50 w-full border-b border-gray-100 bg-white/95 shadow-sm backdrop-blur-xl transition-colors duration-300">
+        <div className="h-1 w-full overflow-hidden bg-gray-100/50">
+          <div className={`${currentStyle.bar} h-full transition-all duration-1000 ease-linear`} style={{ width: `${progressPercent}%` }} />
         </div>
 
-        <div className="max-w-2xl mx-auto px-4 py-3 sm:py-4 flex items-center justify-between">
+        <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3 sm:py-4">
           <div className="flex items-center space-x-3">
-            <div className={`p-2 rounded-lg bg-white border border-gray-100 shadow-sm ${currentStyle.bg.split(' ')[2]}`}>
+            <div className={`rounded-lg border bg-white p-2 shadow-sm ${currentStyle.bg}`}>
               {currentStyle.icon}
             </div>
             <div>
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">RESERVED TIME</p>
-              <p className="text-[11px] sm:text-xs font-bold text-gray-900">
+              <p className="text-xs font-bold uppercase tracking-widest text-gray-400">RESERVED TIME</p>
+              <p className="text-[11px] font-bold text-gray-900 sm:text-xs">
                 {timeLeft <= 60 ? (
-                  <span className="text-red-600 animate-pulse flex items-center transition-all duration-500"><AlertTriangle className="w-3 h-3 mr-0.5" /> 시간이 얼마 남지 않았습니다</span>
-                ) : '지정된 시간 내에 제출을 완료해 주십시오'}
+                  <span className="flex items-center text-red-600 transition-all duration-500 animate-pulse">
+                    <AlertTriangle className="mr-0.5 h-3 w-3" />
+                    마감 시간이 얼마 남지 않았습니다.
+                  </span>
+                ) : (
+                  '지정된 시간 안에 제출을 완료해 주세요.'
+                )}
               </p>
             </div>
           </div>
 
-          <div className="text-right">
-            <div className={`text-2xl sm:text-3xl font-bold tabular-nums tracking-tighter ${currentStyle.text}`}>
-              {formatTime(timeLeft)}
-            </div>
+          <div className={`text-right text-2xl font-bold tracking-tighter tabular-nums sm:text-3xl ${currentStyle.text}`}>
+            {formatTime(timeLeft)}
           </div>
         </div>
       </div>
 
-      <div className="w-full max-w-2xl px-4 py-8 sm:py-10 animate-fade-in-up">
-        <div className="text-center mb-10">
-          <p className="text-snu-blue font-bold text-xs uppercase tracking-[0.3em] mb-2">Registration Form</p>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">행사 참가 신청서 작성</h1>
-          <p className="text-sm text-gray-400 font-medium">서울대학교 입학본부에서 주관하는 행사의 정보를 정확히 입력해 주세요.</p>
+      <div className="w-full max-w-2xl animate-fade-in-up px-4 py-8 sm:py-10">
+        <div className="mb-10 text-center">
+          <p className="mb-2 text-xs font-bold uppercase tracking-[0.3em] text-snu-blue">Registration Form</p>
+          <h1 className="mb-2 text-2xl font-bold text-gray-900 sm:text-3xl">행사 참가 신청서 작성</h1>
+          <p className="text-sm font-medium text-gray-400">안내된 정보를 확인한 뒤 정확한 내용을 입력해 주세요.</p>
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          <div className="bg-white p-6 sm:p-8 rounded-lg shadow-sm border border-gray-100 relative overflow-hidden">
-            <div className="absolute top-0 left-0 w-full h-1 bg-snu-blue"></div>
-            <h2 className="text-lg font-bold text-gray-900 flex items-center mb-6">
-              <span className="w-6 h-6 rounded-md bg-snu-blue text-white flex items-center justify-center text-[10px] mr-2 shadow-sm uppercase font-bold">01</span>
-              신청자 인적사항
+          <div className="relative overflow-hidden rounded-lg border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
+            <div className="absolute left-0 top-0 h-1 w-full bg-snu-blue" />
+            <h2 className="mb-6 flex items-center text-lg font-bold text-gray-900">
+              <span className="mr-2 flex h-6 w-6 items-center justify-center rounded-md bg-snu-blue text-[10px] font-bold uppercase text-white shadow-sm">01</span>
+              신청자 기본 정보
             </h2>
             <div className="space-y-6">
               <div>
-                <label className="block text-sm font-bold text-gray-600 uppercase tracking-wider mb-2">신청자(학부모) 성명 <span className="text-red-500 font-normal">*</span></label>
+                <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">
+                  신청자 이름 <span className="font-normal text-red-500">*</span>
+                </label>
                 <input
                   {...register('studentName', { required: true })}
-                  className="block w-full min-h-[56px] text-base border border-gray-100 rounded-md p-4 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all font-bold text-gray-900 outline-none placeholder:text-gray-400 placeholder:font-normal"
-                  placeholder="신청자 실명을 입력해 주십시오"
+                  className="block min-h-[56px] w-full rounded-md border border-gray-100 bg-gray-50/50 p-4 text-base font-bold text-gray-900 outline-none transition-all placeholder:font-normal placeholder:text-gray-400 focus:border-snu-blue focus:bg-white focus:ring-1 focus:ring-snu-blue"
+                  placeholder="신청자 성함을 입력해 주세요"
                   autoFocus
                 />
-                {errors.studentName && <span className="text-red-500 text-sm mt-2 font-bold flex items-center tracking-tight"><AlertTriangle className="w-4 h-4 mr-1.5" />성명을 입력해 주십시오.</span>}
+                {errors.studentName && (
+                  <span className="mt-2 flex items-center text-sm font-bold tracking-tight text-red-500">
+                    <AlertTriangle className="mr-1.5 h-4 w-4" />
+                    이름을 입력해 주세요.
+                  </span>
+                )}
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-gray-600 uppercase tracking-wider mb-2">휴대폰 번호 <span className="text-red-500 font-normal">*</span></label>
+                <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">
+                  휴대전화 번호 <span className="font-normal text-red-500">*</span>
+                </label>
                 <input
-                  {...register('phone', { 
-                    required: true, 
-                    pattern: /^010\d{8}$/ 
-                  })}
-                  className="block w-full min-h-[56px] text-base border border-gray-100 rounded-md p-4 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all font-mono tracking-widest text-gray-900 outline-none placeholder:font-sans placeholder:tracking-normal placeholder:text-gray-400 placeholder:font-normal"
-                  placeholder="01000000000 (숫자만 입력해 주십시오)"
+                  {...register('phone', { required: true, pattern: /^010\d{8}$/ })}
+                  className="block min-h-[56px] w-full rounded-md border border-gray-100 bg-gray-50/50 p-4 font-mono text-base tracking-widest text-gray-900 outline-none transition-all placeholder:font-sans placeholder:font-normal placeholder:tracking-normal placeholder:text-gray-400 focus:border-snu-blue focus:bg-white focus:ring-1 focus:ring-snu-blue"
+                  placeholder="01000000000 숫자만 입력해 주세요"
+                  inputMode="numeric"
                 />
-                {errors.phone && <span className="text-red-500 text-sm mt-2 font-bold flex items-center tracking-tight"><AlertTriangle className="w-4 h-4 mr-1.5" />010으로 시작하는 11자리 숫자로 입력해 주십시오.</span>}
+                {errors.phone && (
+                  <span className="mt-2 flex items-center text-sm font-bold tracking-tight text-red-500">
+                    <AlertTriangle className="mr-1.5 h-4 w-4" />
+                    010으로 시작하는 11자리 숫자를 입력해 주세요.
+                  </span>
+                )}
               </div>
             </div>
           </div>
 
-          <div className="bg-white p-6 sm:p-8 rounded-lg shadow-sm border border-gray-100">
-            <h2 className="text-lg font-bold text-gray-900 flex items-center mb-6">
-              <span className="w-6 h-6 rounded-md bg-gray-50 text-gray-400 border border-gray-100 flex items-center justify-center text-[10px] mr-2 font-bold uppercase">02</span>
+          <div className="rounded-lg border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
+            <h2 className="mb-6 flex items-center text-lg font-bold text-gray-900">
+              <span className="mr-2 flex h-6 w-6 items-center justify-center rounded-md border border-gray-100 bg-gray-50 text-[10px] font-bold uppercase text-gray-400">02</span>
               추가 수집 정보
             </h2>
 
             <div className="space-y-5">
               {schoolConfig.formFields.collectStudentId && (
                 <div>
-                  <label className="block text-sm font-bold text-gray-600 uppercase tracking-wider mb-2">학번</label>
-                  <input {...register('studentId')} className="block w-full min-h-[56px] text-base border border-gray-100 rounded-md p-4 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all font-medium" placeholder="해당되시는 경우 입력해 주십시오" />
+                  <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">학번</label>
+                  <input
+                    {...register('studentId')}
+                    className="block min-h-[56px] w-full rounded-md border border-gray-100 bg-gray-50/50 p-4 text-base font-medium transition-all focus:border-snu-blue focus:bg-white focus:ring-1 focus:ring-snu-blue"
+                    placeholder="해당하는 경우 입력해 주세요"
+                  />
                 </div>
               )}
+
               {schoolConfig.formFields.collectEmail && (
                 <div>
-                  <label className="block text-sm font-bold text-gray-600 uppercase tracking-wider mb-2">이메일 주소</label>
-                  <input {...register('email')} type="email" className="block w-full min-h-[56px] text-base border border-gray-100 rounded-md p-4 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all font-medium" placeholder="example@snu.ac.kr" />
+                  <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">이메일 주소</label>
+                  <input
+                    {...register('email')}
+                    type="email"
+                    className="block min-h-[56px] w-full rounded-md border border-gray-100 bg-gray-50/50 p-4 text-base font-medium transition-all focus:border-snu-blue focus:bg-white focus:ring-1 focus:ring-snu-blue"
+                    placeholder="example@snu.ac.kr"
+                  />
                 </div>
               )}
+
               {schoolConfig.formFields.collectSchoolName && (
                 <div>
-                  <label className="block text-sm font-bold text-gray-600 uppercase tracking-wider mb-2">소속 학교명</label>
-                  <input {...register('schoolName')} className="block w-full min-h-[56px] text-base border border-gray-100 rounded-md p-4 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all font-medium" placeholder="재학 중인 학교명을 입력해 주십시오" />
+                  <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">학교명</label>
+                  <input
+                    {...register('schoolName')}
+                    className="block min-h-[56px] w-full rounded-md border border-gray-100 bg-gray-50/50 p-4 text-base font-medium transition-all focus:border-snu-blue focus:bg-white focus:ring-1 focus:ring-snu-blue"
+                    placeholder="현재 재학 중인 학교명을 입력해 주세요"
+                  />
                 </div>
               )}
+
               {schoolConfig.formFields.collectGrade && (
                 <div>
-                  <label className="block text-sm font-bold text-gray-600 uppercase tracking-wider mb-2">학년</label>
-                  <select {...register('grade')} className="block w-full min-h-[56px] text-base border border-gray-100 rounded-md p-4 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all text-gray-700 outline-none font-medium">
-                    <option value="">소속 차시/학년을 선택해 주십시오</option>
+                  <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">학년</label>
+                  <select
+                    {...register('grade')}
+                    className="block min-h-[56px] w-full rounded-md border border-gray-100 bg-gray-50/50 p-4 text-base font-medium text-gray-700 outline-none transition-all focus:border-snu-blue focus:bg-white focus:ring-1 focus:ring-snu-blue"
+                  >
+                    <option value="">학년을 선택해 주세요</option>
                     {schoolConfig.formFields.gradeOptions && schoolConfig.formFields.gradeOptions.length > 0 ? (
-                      schoolConfig.formFields.gradeOptions.map(option => (
-                        <option key={option} value={option}>{option}</option>
+                      schoolConfig.formFields.gradeOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
                       ))
                     ) : (
                       <>
@@ -447,64 +524,77 @@ export default function RegisterPage() {
                   </select>
                 </div>
               )}
+
               {schoolConfig.formFields.collectAddress && (
                 <div>
-                  <label className="block text-sm font-bold text-gray-600 uppercase tracking-wider mb-2">거주지 주소</label>
-                  <input {...register('address')} className="block w-full min-h-[56px] text-base border border-gray-100 rounded-md p-4 bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-snu-blue focus:border-snu-blue transition-all font-medium" placeholder="상세 주소를 포함하여 입력해 주십시오" />
+                  <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">주소</label>
+                  <input
+                    {...register('address')}
+                    className="block min-h-[56px] w-full rounded-md border border-gray-100 bg-gray-50/50 p-4 text-base font-medium transition-all focus:border-snu-blue focus:bg-white focus:ring-1 focus:ring-snu-blue"
+                    placeholder="상세 주소를 포함해 입력해 주세요"
+                  />
                 </div>
               )}
-              {!schoolConfig.formFields.collectStudentId && !schoolConfig.formFields.collectEmail && !schoolConfig.formFields.collectSchoolName && !schoolConfig.formFields.collectGrade && !schoolConfig.formFields.collectAddress && (
-                <p className="text-base text-gray-500 font-medium py-2">추가로 수집하는 정보가 없습니다.</p>
-              )}
+
+              {!schoolConfig.formFields.collectStudentId &&
+                !schoolConfig.formFields.collectEmail &&
+                !schoolConfig.formFields.collectSchoolName &&
+                !schoolConfig.formFields.collectGrade &&
+                !schoolConfig.formFields.collectAddress && (
+                  <p className="py-2 text-base font-medium text-gray-500">추가로 수집하는 정보가 없습니다.</p>
+                )}
             </div>
           </div>
 
-          <div className="bg-white p-6 sm:p-8 rounded-lg shadow-sm border border-gray-100">
-            <h2 className="text-lg font-bold text-gray-900 flex items-center mb-6">
-              <span className="w-6 h-6 rounded-md bg-gray-50 text-gray-400 border border-gray-100 flex items-center justify-center text-[10px] mr-2 font-bold uppercase">03</span>
+          <div className="rounded-lg border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
+            <h2 className="mb-6 flex items-center text-lg font-bold text-gray-900">
+              <span className="mr-2 flex h-6 w-6 items-center justify-center rounded-md border border-gray-100 bg-gray-50 text-[10px] font-bold uppercase text-gray-400">03</span>
               이용 약관 동의
             </h2>
 
-            <div className="flex items-center mb-6 p-4 rounded-lg border border-snu-blue/10 bg-snu-blue/5 cursor-pointer hover:bg-snu-blue/10 transition-colors" onClick={() => handleAllAgree(!isAllAgreed)}>
-              <div className="relative flex items-center justify-center rounded-full mr-3">
+            <div
+              className="mb-6 flex cursor-pointer items-center rounded-lg border border-snu-blue/10 bg-snu-blue/5 p-4 transition-colors hover:bg-snu-blue/10"
+              onClick={() => handleAllAgree(!isAllAgreed)}
+            >
+              <div className="relative mr-3 flex items-center justify-center rounded-full">
                 <input
                   type="checkbox"
                   checked={isAllAgreed}
-                  onChange={(e) => handleAllAgree(e.target.checked)}
-                  onClick={(e) => e.stopPropagation()}
-                  className="peer relative appearance-none w-6 h-6 border-2 border-snu-blue/30 rounded-md cursor-pointer transition-all checked:border-snu-blue checked:bg-snu-blue outline-none"
+                  onChange={(event) => handleAllAgree(event.target.checked)}
+                  onClick={(event) => event.stopPropagation()}
+                  className="peer relative h-6 w-6 appearance-none rounded-md border-2 border-snu-blue/30 transition-all checked:border-snu-blue checked:bg-snu-blue outline-none"
                 />
-                <svg className="absolute w-4 h-4 text-white pointer-events-none opacity-0 peer-checked:opacity-100 transition-opacity" viewBox="0 0 14 10" fill="none">
+                <svg className="pointer-events-none absolute h-4 w-4 text-white opacity-0 transition-opacity peer-checked:opacity-100" viewBox="0 0 14 10" fill="none">
                   <path d="M1 5L4.5 8.5L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </div>
-              <label className="font-bold text-lg text-snu-blue cursor-pointer select-none">필수 약관 전체 동의</label>
+              <label className="cursor-pointer select-none text-lg font-bold text-snu-blue">필수 약관 전체 동의</label>
             </div>
 
             <div className="space-y-0 text-gray-800">
               <TermsAccordion
-                title="[필수] 개인정보 수집 및 이용 동의"
+                title={schoolConfig.terms.privacy.title || '[필수] 개인정보 수집 및 이용 동의'}
                 content={schoolConfig.terms.privacy.content}
                 isOpen={openTerms === 1}
                 onToggle={() => setOpenTerms(openTerms === 1 ? null : 1)}
                 isChecked={termsAgreed.privacy}
-                onCheck={(value) => setTermsAgreed((prev) => ({ ...prev, privacy: value }))}
+                onCheck={(value) => setTermsAgreed((previous) => ({ ...previous, privacy: value }))}
               />
               <TermsAccordion
-                title="[필수] 개인정보 제3자 제공 동의"
+                title={schoolConfig.terms.thirdParty.title || '[필수] 개인정보 제3자 제공 동의'}
                 content={schoolConfig.terms.thirdParty.content}
                 isOpen={openTerms === 2}
                 onToggle={() => setOpenTerms(openTerms === 2 ? null : 2)}
                 isChecked={termsAgreed.thirdParty}
-                onCheck={(value) => setTermsAgreed((prev) => ({ ...prev, thirdParty: value }))}
+                onCheck={(value) => setTermsAgreed((previous) => ({ ...previous, thirdParty: value }))}
               />
               <TermsAccordion
-                title="[필수] 알림 수신 동의"
+                title={schoolConfig.terms.sms.title || '[필수] 알림 수신 동의'}
                 content={schoolConfig.terms.sms.content}
                 isOpen={openTerms === 3}
                 onToggle={() => setOpenTerms(openTerms === 3 ? null : 3)}
                 isChecked={termsAgreed.sms}
-                onCheck={(value) => setTermsAgreed((prev) => ({ ...prev, sms: value }))}
+                onCheck={(value) => setTermsAgreed((previous) => ({ ...previous, sms: value }))}
               />
             </div>
           </div>
@@ -512,16 +602,20 @@ export default function RegisterPage() {
           <button
             type="submit"
             disabled={submitting}
-            className={`w-full py-5 min-h-[56px] rounded-2xl text-white font-bold text-lg sm:text-xl transition-all duration-300 shadow-sm ${
-              submitting ? 'bg-gray-300 cursor-not-allowed shadow-none' : 'bg-snu-blue hover:bg-snu-dark hover:shadow-md focus:ring-4 focus:ring-snu-blue/20'
+            className={`min-h-[56px] w-full rounded-2xl py-5 text-lg font-bold text-white shadow-sm transition-all duration-300 sm:text-xl ${
+              submitting
+                ? 'cursor-not-allowed bg-gray-300 shadow-none'
+                : 'bg-snu-blue hover:bg-snu-dark hover:shadow-md focus:ring-4 focus:ring-snu-blue/20'
             }`}
           >
             {submitting ? (
-              <span className="flex items-center justify-center tracking-widest text-base">
-                <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin mr-3"></div>
+              <span className="flex items-center justify-center text-base tracking-widest">
+                <div className="mr-3 h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                 처리 중입니다...
               </span>
-            ) : '참가 신청서 제출'}
+            ) : (
+              '참가 신청서 제출'
+            )}
           </button>
         </form>
       </div>

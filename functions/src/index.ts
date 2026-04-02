@@ -303,6 +303,12 @@ export const onRegistrationDelete = firestoreTriggers
         availableCapacity: Math.max(0, totalCapacity - confirmedCount - waitlistedCount - activeReservationCount),
         updatedAt
       }, { merge: true });
+
+      if (deletedData?.queueIdentityHash && roundMeta.roundId) {
+        transaction.delete(
+          admin.firestore().doc(`schools/${schoolId}/queueIdentityLocks/${roundMeta.roundId}_${deletedData.queueIdentityHash}`)
+        );
+      }
     });
   });
 
@@ -312,10 +318,16 @@ export const getAlimtalkTemplates = functionsV1.https.onCall(async (request: any
     throw new functions.https.HttpsError('unauthenticated', '������ �ʿ��մϴ�.');
   }
 
-  const { appKey, secretKey } = data;
+  const { schoolId, appKey, secretKey } = data;
   if (!appKey || !secretKey) {
     throw new functions.https.HttpsError('invalid-argument', 'App Key�� Secret Key�� �ʿ��մϴ�.');
   }
+
+  if (!schoolId) {
+    throw new functions.https.HttpsError('invalid-argument', 'schoolId가 필요합니다.');
+  }
+
+  await assertAdminAccessToSchool(auth.uid, schoolId);
 
   const url = `https://api-alimtalk.cloud.toast.com/alimtalk/v1.5/appkeys/${appKey}/templates`;
 
@@ -380,7 +392,7 @@ export const lookupRegistration = functionsV1.https.onCall(async (request: any, 
     registration: {
       id: doc.id,
       studentName: reg.studentName,
-      phone: reg.phone,
+      phone: typeof reg.phone === 'string' ? reg.phone.replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2') : null,
       status: reg.status,
       rank: reg.rank ?? null,
       submittedAt: reg.submittedAt,
@@ -457,6 +469,11 @@ export const cancelRegistration = functionsV1.https.onCall(async (request: any, 
       updatedAt,
       cancellationReason: 'user_requested'
     });
+    if (reg.queueIdentityHash && roundMeta.roundId) {
+      transaction.delete(
+        admin.firestore().doc(`schools/${schoolId}/queueIdentityLocks/${roundMeta.roundId}_${reg.queueIdentityHash}`)
+      );
+    }
 
     transaction.set(schoolRef, {
       stats: {

@@ -6,7 +6,16 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowRight, CheckCircle2, Clock3, Info, Ticket, Users } from 'lucide-react';
 import { auth, db, functions } from '../firebase/config';
 import { useSchool } from '../contexts/SchoolContext';
-import { getQueueUserId } from '../lib/queue';
+import {
+  clearRecentQueueExpiry,
+  getRecentQueueExpiry,
+  getQueueUserId,
+  loadStoredQueueIdentity,
+  markRecentQueueExpiry,
+  normalizeQueuePhone,
+  QueueIdentityInput,
+  saveStoredQueueIdentity
+} from '../lib/queue';
 import { createRequestId } from '../lib/requestId';
 import { getCurrentAdmissionRound, getAdmissionRoundTotal, normalizeAdmissionRounds } from '../lib/admissionRounds';
 
@@ -80,6 +89,8 @@ function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+const RECENT_EXPIRY_SUPPRESSION_MS = 15 * 1000;
+
 export default function SmartQueueGate() {
   const { schoolId } = useParams<{ schoolId: string }>();
   const { schoolConfig } = useSchool();
@@ -100,12 +111,14 @@ export default function SmartQueueGate() {
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
+  const [joiningElapsed, setJoiningElapsed] = useState(0);
   const [starting, setStarting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   const [autoEntering, setAutoEntering] = useState(false);
   const [showProgramImage, setShowProgramImage] = useState(false);
   const [selectedRoundId, setSelectedRoundId] = useState<string>('round1');
+  const [queueIdentity, setQueueIdentity] = useState<QueueIdentityInput>({ studentName: '', phone: '' });
 
   const autoStartedRef = useRef(false);
   const joinRequestIdRef = useRef<string | null>(null);
@@ -130,6 +143,45 @@ export default function SmartQueueGate() {
     schoolConfig?.programInfo?.trim() ||
     '행사 개요, 준비물, 유의사항은 이 영역에서 함께 확인할 수 있습니다.';
 
+  const normalizedQueuePhone = normalizeQueuePhone(queueIdentity.phone);
+  const queueIdentityReady = queueIdentity.studentName.trim().length > 0 && /^010\d{8}$/.test(normalizedQueuePhone);
+  const recentExpiryAt = schoolId ? getRecentQueueExpiry(schoolId) : 0;
+  const suppressAutoEntry = !!recentExpiryAt && now - recentExpiryAt < RECENT_EXPIRY_SUPPRESSION_MS;
+  const friendlyErrorMessage = useMemo(() => {
+    if (!errorMessage) return null;
+    if (errorMessage.includes('이미 진행 중인 대기열') || errorMessage.includes('이미 신청이 접수')) {
+      return errorMessage;
+    }
+    if (errorMessage.includes('schoolId') || errorMessage.includes('휴대폰 번호') || errorMessage.includes('이름')) {
+      return errorMessage;
+    }
+    if (errorMessage.includes('운영 상한') || errorMessage.includes('정원이 없습니다')) {
+      return '현재 대기열이 마감되었습니다. 추가 모집이 있을 경우 안내됩니다.';
+    }
+    if (errorMessage.includes('요청이 너무 빈번') || errorMessage.includes('초 후')) {
+      return '잠시 후 자동으로 다시 시도됩니다. 새로고침하지 마세요.';
+    }
+    return '접속자가 많아 처리가 지연되고 있습니다. 새로고침하지 말고 잠시만 기다려 주세요.';
+  }, [errorMessage]);
+
+  // Track elapsed time while joining and warn before page unload
+  useEffect(() => {
+    if (!joining) {
+      setJoiningElapsed(0);
+      return;
+    }
+    const start = Date.now();
+    const timer = setInterval(() => setJoiningElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [joining]);
+
   useEffect(() => {
     if (currentRound?.id) {
       setSelectedRoundId((prev) => {
@@ -145,6 +197,17 @@ export default function SmartQueueGate() {
   }, [currentRound?.id, myEntry, rounds]);
 
   useEffect(() => {
+    if (!schoolId || !selectedRound?.id) {
+      return;
+    }
+
+    const storedIdentity = loadStoredQueueIdentity(schoolId, selectedRound.id);
+    if (storedIdentity) {
+      setQueueIdentity(storedIdentity);
+    }
+  }, [schoolId, selectedRound?.id]);
+
+  useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
@@ -158,7 +221,6 @@ export default function SmartQueueGate() {
   }, []);
 
   useEffect(() => {
-    if (!queueEnabled) return;
     if (auth.currentUser?.uid) {
       setUserId(auth.currentUser.uid);
       return;
@@ -184,7 +246,7 @@ export default function SmartQueueGate() {
   }, [queueEnabled]);
 
   useEffect(() => {
-    if (!schoolId) return;
+    if (!schoolId || !userId) return;
 
     const queueStateDocId = selectedRound?.id || 'round1';
     const unsubscribe = onSnapshot(
@@ -211,7 +273,7 @@ export default function SmartQueueGate() {
     );
 
     return () => unsubscribe();
-  }, [schoolId, totalCapacity, selectedRound?.id]);
+  }, [schoolId, totalCapacity, selectedRound?.id, userId]);
 
   useEffect(() => {
     if (!schoolId || !userId) return;
@@ -285,13 +347,16 @@ export default function SmartQueueGate() {
         ? `대기 접수 상한 ${queueJoinLimit.toLocaleString()}명에 도달해 버튼이 비활성화되었습니다. 이미 번호를 받으신 분들만 입장이 가능합니다.`
         : joinDisabledReason || '오픈 시각에 활성화되는 버튼을 누르시면 대기번호가 발급됩니다.';
   const primaryActionLabel = joining
-    ? `${selectedRound?.label || ''} 대기번호 발급 중...`
+    ? joiningElapsed >= 10
+      ? `서버가 처리 중입니다 (${joiningElapsed}초)... 화면을 닫지 마세요`
+      : `${selectedRound?.label || ''} 대기번호 발급 중...`
     : myEntry?.status === 'expired'
       ? `${selectedRound?.label || ''} 대기열 다시 입장하기`
       : `${selectedRound?.label || ''} 대기열 입장하기`;
 
   useEffect(() => {
     if (!canEnter || !isOpen || !schoolId || loading || autoStartedRef.current) return;
+    if (suppressAutoEntry) return;
 
     autoStartedRef.current = true;
     setAutoEntering(true);
@@ -301,7 +366,15 @@ export default function SmartQueueGate() {
     }, 2000);
 
     return () => window.clearTimeout(timer);
-  }, [canEnter, isOpen, schoolId, loading]);
+  }, [canEnter, isOpen, schoolId, loading, suppressAutoEntry]);
+
+  useEffect(() => {
+    if (!schoolId) return;
+
+    if (!suppressAutoEntry || !myEntry || myEntry.status === 'expired') {
+      clearRecentQueueExpiry(schoolId);
+    }
+  }, [myEntry, schoolId, suppressAutoEntry]);
 
   useEffect(() => {
     if (!schoolId || !myEntry || (myEntry.status !== 'waiting' && myEntry.status !== 'eligible')) {
@@ -394,6 +467,10 @@ export default function SmartQueueGate() {
 
   const joinQueue = async () => {
     if (!schoolId || joining || !isOpen) return;
+    if (!queueIdentityReady) {
+      setErrorMessage('대기열 입장 전 이름과 휴대폰 번호를 정확히 입력해 주세요.');
+      return;
+    }
 
     setJoining(true);
     setErrorMessage(null);
@@ -409,7 +486,15 @@ export default function SmartQueueGate() {
 
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         try {
-          result = await joinQueueFn({ schoolId, roundId: selectedRound?.id, requestId });
+          result = await joinQueueFn({
+            schoolId,
+            roundId: selectedRound?.id,
+            requestId,
+            queueIdentity: {
+              studentName: queueIdentity.studentName.trim(),
+              phone: normalizedQueuePhone
+            }
+          });
           lastError = null;
           break;
         } catch (error: any) {
@@ -419,7 +504,7 @@ export default function SmartQueueGate() {
           if (!shouldRetry || attempt === maxAttempts) {
             throw error;
           }
-          const backoffMs = 250 + Math.floor(Math.random() * 350) + (attempt - 1) * 250;
+          const backoffMs = 2000 + Math.floor(Math.random() * 3000) + (attempt - 1) * 5000;
           await sleep(backoffMs);
         }
       }
@@ -428,6 +513,12 @@ export default function SmartQueueGate() {
         throw lastError;
       }
       if (result.data) {
+        if (selectedRound?.id) {
+          saveStoredQueueIdentity(schoolId, selectedRound.id, {
+            studentName: queueIdentity.studentName.trim(),
+            phone: normalizedQueuePhone
+          });
+        }
         setMyEntry((prev) => ({
           number: result.data.number ?? prev?.number ?? null,
           status: result.data.status ?? prev?.status ?? 'waiting',
@@ -468,6 +559,12 @@ export default function SmartQueueGate() {
       startRequestIdRef.current = null;
       setAutoEntering(false);
       autoStartedRef.current = false;
+      if (schoolId) {
+        const code = String(error?.code || '');
+        if (code.includes('deadline-exceeded') || code.includes('failed-precondition')) {
+          markRecentQueueExpiry(schoolId);
+        }
+      }
       setErrorMessage(error?.message || '신청 페이지로 이동하지 못했습니다. 잠시 후 다시 시도해 주세요.');
     } finally {
       setStarting(false);
@@ -659,17 +756,41 @@ export default function SmartQueueGate() {
               {myStatusMessage}
             </div>
 
+            {!myEntry || myEntry.status === 'expired' ? (
+              <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                <p className="text-sm font-bold text-gray-900">입장 확인 정보</p>
+                <p className="mt-2 text-sm leading-relaxed text-gray-600">
+                  같은 이름과 휴대폰 번호로는 한 번에 하나의 대기열만 유지됩니다. 다른 기기에서 동시에 번호를 받는 문제를 막기 위한 절차입니다.
+                </p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <input
+                    value={queueIdentity.studentName}
+                    onChange={(event) => setQueueIdentity((prev) => ({ ...prev, studentName: event.target.value }))}
+                    placeholder="이름"
+                    className="min-h-[52px] rounded-2xl border border-gray-200 bg-white px-4 text-base text-gray-900 outline-none transition focus:border-snu-blue focus:ring-2 focus:ring-snu-blue/10"
+                  />
+                  <input
+                    value={queueIdentity.phone}
+                    onChange={(event) => setQueueIdentity((prev) => ({ ...prev, phone: normalizeQueuePhone(event.target.value) }))}
+                    inputMode="numeric"
+                    placeholder="휴대폰 번호 (01012345678)"
+                    className="min-h-[52px] rounded-2xl border border-gray-200 bg-white px-4 text-base text-gray-900 outline-none transition focus:border-snu-blue focus:ring-2 focus:ring-snu-blue/10"
+                  />
+                </div>
+              </div>
+            ) : null}
+
             <div className="mt-6 grid gap-3">
               {!myEntry || myEntry.status === 'expired' ? (
                 <button
                   onClick={() => void joinQueue()}
-                  disabled={!isOpen || joining || remainingCapacity <= 0 || queueLimitReached}
+                  disabled={!isOpen || joining || remainingCapacity <= 0 || queueLimitReached || !queueIdentityReady}
                   className="flex min-h-[56px] w-full items-center justify-center rounded-2xl bg-snu-blue px-5 py-4 text-base font-bold text-white transition hover:bg-snu-dark disabled:cursor-not-allowed disabled:bg-gray-300 sm:min-h-[60px]"
                 >
                   {primaryActionLabel}
                   {!joining && <ArrowRight className="ml-2 h-5 w-5" />}
                 </button>
-              ) : canEnter ? (
+              ) : canEnter && !suppressAutoEntry ? (
                 <button
                   onClick={() => void startRegistration()}
                   disabled={starting}
@@ -722,7 +843,13 @@ export default function SmartQueueGate() {
               )}
             </section>
 
-            {errorMessage && <p className="mt-4 text-sm font-semibold text-rose-600">{errorMessage}</p>}
+            {friendlyErrorMessage && (
+              <p className={`mt-4 text-sm font-semibold ${
+                friendlyErrorMessage.includes('마감') ? 'text-gray-600' :
+                friendlyErrorMessage.includes('기다려') || friendlyErrorMessage.includes('새로고침') ? 'text-amber-600' :
+                'text-rose-600'
+              }`}>{friendlyErrorMessage}</p>
+            )}
           </section>
 
           <div className="space-y-6">
@@ -791,12 +918,12 @@ export default function SmartQueueGate() {
             {!myEntry || myEntry.status === 'expired' ? (
               <button
                 onClick={() => void joinQueue()}
-                disabled={!isOpen || joining || remainingCapacity <= 0 || queueLimitReached}
+                disabled={!isOpen || joining || remainingCapacity <= 0 || queueLimitReached || !queueIdentityReady}
                 className="flex min-h-[54px] flex-1 items-center justify-center rounded-2xl bg-snu-blue px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-gray-300"
               >
                 {primaryActionLabel}
               </button>
-            ) : canEnter ? (
+            ) : canEnter && !suppressAutoEntry ? (
               <button
                 onClick={() => void startRegistration()}
                 disabled={starting}

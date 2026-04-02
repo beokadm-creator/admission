@@ -1,7 +1,26 @@
 ﻿import * as functions from 'firebase-functions';
 import * as functionsV1 from 'firebase-functions/v1';
 import * as admin from 'firebase-admin';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
+
+// Runtime configurations for hot-path functions to handle stampede load
+const hotPathRuntime = functionsV1.runWith({
+  timeoutSeconds: 120,
+  memory: '512MB',
+  minInstances: 3,
+  maxInstances: 200
+});
+const heartbeatRuntime = functionsV1.runWith({
+  timeoutSeconds: 30,
+  memory: '256MB',
+  maxInstances: 100
+});
+const standardRuntime = functionsV1.runWith({
+  timeoutSeconds: 120,
+  memory: '512MB',
+  minInstances: 1,
+  maxInstances: 80
+});
 
 if (admin.apps.length === 0) {
   admin.initializeApp({
@@ -42,6 +61,9 @@ interface QueueEntryDoc {
   roundId: string;
   roundLabel?: string;
   userId: string;
+  queueIdentityHash?: string;
+  applicantName?: string;
+  applicantPhoneLast4?: string;
   number: number | null;
   status: QueueEntryStatus;
   joinedAt: number;
@@ -55,6 +77,9 @@ interface ReservationDoc {
   roundId: string;
   roundLabel?: string;
   userId: string;
+  queueIdentityHash?: string;
+  applicantName?: string;
+  applicantPhoneLast4?: string;
   queueNumber: number | null;
   status: ReservationStatus;
   createdAt: number;
@@ -76,6 +101,18 @@ interface RequestLockDoc {
   result: Record<string, any>;
 }
 
+interface QueueIdentityLockDoc {
+  roundId: string;
+  userId: string;
+  studentName: string;
+  phoneLast4: string;
+  status: 'waiting' | 'eligible' | 'reserved' | 'confirmed' | 'waitlisted';
+  queueNumber?: number | null;
+  sessionId?: string | null;
+  registrationId?: string | null;
+  updatedAt: number;
+}
+
 interface NormalizedCallableRequest {
   data: any;
   auth: any;
@@ -85,6 +122,8 @@ interface NormalizedCallableRequest {
 const DEFAULT_SESSION_MS = 3 * 60 * 1000;
 const WAITING_PRESENCE_TIMEOUT_MS = 90 * 1000;
 const ELIGIBLE_PRESENCE_TIMEOUT_MS = 60 * 1000;
+const ACTIVE_QUEUE_ENTRY_STATUSES: QueueEntryStatus[] = ['waiting', 'eligible'];
+const ACTIVE_RESERVATION_STATUSES: ReservationStatus[] = ['reserved', 'processing'];
 
 function normalizeCallableRequest(requestOrData: any, legacyContext?: any): NormalizedCallableRequest {
   if (
@@ -292,10 +331,55 @@ function requestLockRef(db: admin.firestore.Firestore, schoolId: string, request
   return db.doc(`schools/${schoolId}/requestLocks/${requestId}`);
 }
 
+function queueIdentityLockRef(db: admin.firestore.Firestore, schoolId: string, roundId: string, identityHash: string) {
+  return db.doc(`schools/${schoolId}/queueIdentityLocks/${roundId}_${identityHash}`);
+}
+
 function sanitizeRequestId(requestId?: string) {
   return typeof requestId === 'string' && requestId.trim()
     ? requestId.trim().slice(0, 120)
     : `req_${Date.now()}_${randomBytes(8).toString('hex')}`;
+}
+
+interface QueueIdentity {
+  studentName: string;
+  phone: string;
+  phoneLast4: string;
+  identityHash: string;
+}
+
+function buildQueueIdentityHash(studentName: string, phone: string) {
+  const normalizedName = String(studentName || '').trim().replace(/\s+/g, '').toLowerCase();
+  const normalizedPhone = String(phone || '').replace(/\D/g, '');
+  return createHash('sha256').update(`${normalizedName}:${normalizedPhone}`).digest('hex');
+}
+
+function sanitizeQueueIdentity(queueIdentity: any): QueueIdentity {
+  if (typeof queueIdentity !== 'object' || queueIdentity === null) {
+    throw new functions.https.HttpsError('invalid-argument', '이름과 휴대폰 번호를 먼저 입력해 주세요.');
+  }
+
+  const studentName = String(queueIdentity.studentName || '').trim().slice(0, 50);
+  const phone = String(queueIdentity.phone || '').replace(/\D/g, '');
+
+  if (!studentName) {
+    throw new functions.https.HttpsError('invalid-argument', '이름을 입력해 주세요.');
+  }
+
+  if (!/^010\d{8}$/.test(phone)) {
+    throw new functions.https.HttpsError('invalid-argument', '휴대폰 번호는 010으로 시작하는 11자리 숫자로 입력해 주세요.');
+  }
+
+  return {
+    studentName,
+    phone,
+    phoneLast4: phone.slice(-4),
+    identityHash: buildQueueIdentityHash(studentName, phone)
+  };
+}
+
+function buildQueueIdentityInUseMessage(studentName: string, phoneLast4: string) {
+  return `${studentName} (${phoneLast4}) 정보로 이미 진행 중인 대기열 또는 신청서가 있습니다. 기존 기기에서 이어서 진행해 주세요.`;
 }
 
 function buildQueueStateDoc(
@@ -429,45 +513,30 @@ async function issueQueueNumberFromRtdb(
   queueJoinLimit: number
 ) {
   const issuerRef = queueIssuerRef(schoolId, roundId);
+  const assignmentRef = issuerRef.child(`assignments/${userId}`);
+
+  // 1. Fast path: check if user already has an assignment (simple read, no tx)
+  const existingSnapshot = await assignmentRef.get();
+  if (existingSnapshot.exists() && existingSnapshot.val()?.number) {
+    return { number: Number(existingSnapshot.val().number), reused: true };
+  }
+
+  // 2. Lightweight transaction on just the counter (not the entire object).
+  //    Previously the transaction read/wrote the full assignments map, causing
+  //    O(N²) bandwidth under concurrency as the object grew.
   let issuedNumber: number | null = null;
-  let existingNumber: number | null = null;
   let limitReached = false;
 
-  const result = await issuerRef.transaction((current) => {
-    const state = current || {};
-    const assignments = state.assignments || {};
-    const existing = assignments[userId];
-    if (existing?.number) {
-      existingNumber = Number(existing.number);
-      return;
-    }
-
-    const nextNumber = Number(state.nextNumber || 0) + 1;
+  const counterRef = issuerRef.child('nextNumber');
+  const result = await counterRef.transaction((currentNumber) => {
+    const nextNumber = Number(currentNumber || 0) + 1;
     if (nextNumber > queueJoinLimit) {
       limitReached = true;
-      return;
+      return; // abort transaction
     }
     issuedNumber = nextNumber;
-    return {
-      nextNumber,
-      updatedAt: now,
-      assignments: {
-        ...assignments,
-        [userId]: {
-          number: nextNumber,
-          assignedAt: now
-        }
-      }
-    };
+    return nextNumber;
   });
-
-  if (result.committed && issuedNumber != null) {
-    return { number: issuedNumber, reused: false };
-  }
-
-  if (existingNumber != null) {
-    return { number: existingNumber, reused: true };
-  }
 
   if (limitReached) {
     throw new functions.https.HttpsError(
@@ -476,10 +545,17 @@ async function issueQueueNumberFromRtdb(
     );
   }
 
-  const snapshot = await issuerRef.child(`assignments/${userId}`).get();
-  if (snapshot.exists()) {
+  if (result.committed && issuedNumber != null) {
+    // 3. Write user assignment as a separate child node (no contention with counter)
+    await assignmentRef.set({ number: issuedNumber, assignedAt: now });
+    return { number: issuedNumber, reused: false };
+  }
+
+  // Fallback: another request for this user may have raced and written an assignment
+  const retrySnapshot = await assignmentRef.get();
+  if (retrySnapshot.exists()) {
     return {
-      number: Number(snapshot.val().number),
+      number: Number(retrySnapshot.val().number),
       reused: true
     };
   }
@@ -517,32 +593,91 @@ async function advanceQueueForSchool(
     }
 
     const queueState = buildQueueStateDoc(schoolData, round, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
-    const waitingCount = Math.max(0, queueState.lastAssignedNumber - queueState.currentNumber);
 
-    if (waitingCount <= 0 || queueState.availableCapacity <= 0 || getAvailableWriterSlots(queueState) <= 0) {
+    if (queueState.availableCapacity <= 0 || getAvailableWriterSlots(queueState) <= 0) {
       return 0;
     }
 
-    const advanceAmount = getQueueAdvanceAmount(queueState);
-    if (advanceAmount <= 0) {
+    // Compute headroom from capacity and session limits only — do NOT rely on
+    // lastAssignedNumber for the waiting count. Since joinQueue no longer
+    // updates queueState, lastAssignedNumber can be stale. Instead, we query
+    // queueEntries directly and let the actual docs determine the advance count.
+    const headroom = Math.min(
+      queueState.availableCapacity,
+      Math.max(0, queueState.maxActiveSessions - queueState.activeReservationCount - queueState.pendingAdmissionCount)
+    );
+    if (headroom <= 0) {
       return 0;
     }
 
-    const promotionDocs = await loadEntriesForPromotion(transaction, db, schoolId, round.id, queueState.currentNumber, advanceAmount);
+    const promotionDocs = await loadEntriesForPromotion(transaction, db, schoolId, round.id, queueState.currentNumber, headroom);
     const promotedCount = promoteEligibleEntries(transaction, promotionDocs, now);
     if (promotedCount <= 0) {
       return 0;
     }
 
+    // Reconcile lastAssignedNumber from the highest promoted entry number
+    const maxPromotedNumber = Math.max(
+      queueState.lastAssignedNumber,
+      ...promotionDocs.map(doc => Number((doc.data() as QueueEntryDoc).number || 0))
+    );
+
     transaction.set(stateRef, {
       ...queueState,
       pendingAdmissionCount: queueState.pendingAdmissionCount + promotedCount,
       currentNumber: queueState.currentNumber + promotedCount,
+      lastAssignedNumber: maxPromotedNumber,
       lastAdvancedAt: now,
       updatedAt: now
     }, { merge: true });
 
     return promotedCount;
+  });
+}
+
+async function ensureEligibleEntryVisibleInQueueState(
+  db: admin.firestore.Firestore,
+  schoolId: string,
+  round: AdmissionRoundConfig,
+  entry: Pick<QueueEntryDoc, 'status' | 'number'>
+) {
+  if (entry.status !== 'eligible' || entry.number == null) {
+    return false;
+  }
+
+  const stateRef = queueStateRef(db, schoolId, round.id);
+  const schoolRef = db.doc(`schools/${schoolId}`);
+  const now = Date.now();
+
+  return db.runTransaction(async (transaction) => {
+    const [schoolSnapshot, stateSnapshot] = await Promise.all([
+      transaction.get(schoolRef),
+      transaction.get(stateRef)
+    ]);
+
+    if (!schoolSnapshot.exists) {
+      return false;
+    }
+
+    const schoolData = schoolSnapshot.data()!;
+    const queueState = buildQueueStateDoc(
+      schoolData,
+      round,
+      stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null
+    );
+
+    if (queueState.currentNumber >= entry.number) {
+      return false;
+    }
+
+    transaction.set(stateRef, {
+      ...queueState,
+      currentNumber: entry.number,
+      lastAdvancedAt: now,
+      updatedAt: now
+    }, { merge: true });
+
+    return true;
   });
 }
 
@@ -666,13 +801,20 @@ async function cleanupStaleQueueEntriesForSchool(
       }
 
       const freshEntry = freshSnapshot.data() as QueueEntryDoc;
-      if (freshEntry.status !== 'waiting' || Number(freshEntry.lastSeenAt || 0) > waitingCutoff) {
+      if (
+        freshEntry.roundId !== round.id ||
+        freshEntry.status !== 'waiting' ||
+        Number(freshEntry.lastSeenAt || 0) > waitingCutoff
+      ) {
         continue;
       }
 
       staleWaitingRefs.push(doc.ref);
       clearedUserIds.add(freshEntry.userId);
       expiredWaiting += 1;
+      if (staleWaitingRefs.length >= limitPerStatus) {
+        break;
+      }
     }
 
     for (const doc of eligibleSnapshot.docs) {
@@ -682,7 +824,11 @@ async function cleanupStaleQueueEntriesForSchool(
       }
 
       const freshEntry = freshSnapshot.data() as QueueEntryDoc;
-      if (freshEntry.status !== 'eligible' || Number(freshEntry.lastSeenAt || 0) > eligibleCutoff) {
+      if (
+        freshEntry.roundId !== round.id ||
+        freshEntry.status !== 'eligible' ||
+        Number(freshEntry.lastSeenAt || 0) > eligibleCutoff
+      ) {
         continue;
       }
 
@@ -690,6 +836,9 @@ async function cleanupStaleQueueEntriesForSchool(
       clearedUserIds.add(freshEntry.userId);
       pendingAdmissionCount = Math.max(0, pendingAdmissionCount - 1);
       expiredEligible += 1;
+      if (staleEligibleRefs.length >= limitPerStatus) {
+        break;
+      }
     }
 
     const nextState = {
@@ -711,6 +860,13 @@ async function cleanupStaleQueueEntriesForSchool(
       }, { merge: true });
     });
 
+    for (const ref of staleWaitingRefs) {
+      const freshEntry = (await transaction.get(ref)).data() as QueueEntryDoc | undefined;
+      if (freshEntry?.queueIdentityHash) {
+        transaction.delete(queueIdentityLockRef(db, schoolId, round.id, freshEntry.queueIdentityHash));
+      }
+    }
+
     staleEligibleRefs.forEach((ref) => {
       transaction.set(ref, {
         status: 'expired',
@@ -719,6 +875,13 @@ async function cleanupStaleQueueEntriesForSchool(
         updatedAt: now
       }, { merge: true });
     });
+
+    for (const ref of staleEligibleRefs) {
+      const freshEntry = (await transaction.get(ref)).data() as QueueEntryDoc | undefined;
+      if (freshEntry?.queueIdentityHash) {
+        transaction.delete(queueIdentityLockRef(db, schoolId, round.id, freshEntry.queueIdentityHash));
+      }
+    }
 
     transaction.set(
       stateRef,
@@ -826,6 +989,9 @@ async function expireReservationDocument(
       updatedAt: now,
       processingAt: null
     });
+    if (reservation.queueIdentityHash) {
+      transaction.delete(queueIdentityLockRef(db, schoolId, round.id, reservation.queueIdentityHash));
+    }
 
     if (queueEntryRef && queueEntrySnapshot?.exists) {
       const currentEntry = queueEntrySnapshot.data() as QueueEntryDoc;
@@ -852,18 +1018,19 @@ async function expireReservationDocument(
   return result;
 }
 
-export const joinQueue = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
+export const joinQueue = hotPathRuntime.https.onCall(async (request: any, legacyContext?: any) => {
   const db = admin.firestore();
   const { data, auth, rawRequest } = normalizeCallableRequest(request, legacyContext);
   if (!auth) {
     throw new functions.https.HttpsError('unauthenticated', '濡쒓렇?몄씠 ?꾩슂?⑸땲??');
   }
 
-  const { schoolId, roundId } = data?.data || data;
+  const { schoolId, roundId, queueIdentity } = data?.data || data;
   const requestId = sanitizeRequestId((data?.data || data)?.requestId);
   if (!schoolId) {
     throw new functions.https.HttpsError('invalid-argument', 'schoolId媛 ?꾩슂?⑸땲??');
   }
+  const sanitizedIdentity = sanitizeQueueIdentity(queueIdentity);
 
   const existingResult = await getExistingRequestResult(db, schoolId, requestId);
   if (existingResult) {
@@ -900,6 +1067,7 @@ export const joinQueue = functionsV1.https.onCall(async (request: any, legacyCon
 
   const schoolData = schoolSnapshot.data()!;
   const round = roundId ? (getRoundById(schoolData, roundId) || getResolvedAdmissionRound(schoolData)) : getResolvedAdmissionRound(schoolData);
+  const identityLockRef = queueIdentityLockRef(db, schoolId, round.id, sanitizedIdentity.identityHash);
   const stateRef = queueStateRef(db, schoolId, round.id);
   const lockRef = requestLockRef(db, schoolId, `${round.id}_${requestId}`);
   const stateSnapshot = await stateRef.get();
@@ -941,6 +1109,17 @@ export const joinQueue = functionsV1.https.onCall(async (request: any, legacyCon
         },
         { merge: true }
       ),
+      identityLockRef.set({
+        roundId: round.id,
+        userId: auth.uid,
+        studentName: existingEntry.applicantName || sanitizedIdentity.studentName,
+        phoneLast4: existingEntry.applicantPhoneLast4 || sanitizedIdentity.phoneLast4,
+        status: existingEntry.status === 'eligible' ? 'eligible' : 'waiting',
+        queueNumber: existingEntry.number,
+        sessionId: null,
+        registrationId: null,
+        updatedAt: now
+      } as QueueIdentityLockDoc, { merge: true }),
       lockRef.set(makeRequestLock('joinQueue', auth.uid, existingJoinResult))
     ]);
 
@@ -962,22 +1141,20 @@ export const joinQueue = functionsV1.https.onCall(async (request: any, legacyCon
   const issued = await issueQueueNumberFromRtdb(schoolId, round.id, auth.uid, now, queueJoinLimit);
 
   try {
+    // NOTE: stateRef is intentionally excluded from this transaction to avoid
+    // single-document write contention when hundreds of users join simultaneously.
+    // queueState is reconciled by the scheduled autoAdvanceQueue job instead of
+    // being updated on every join.
     const joinResult = await db.runTransaction(async (transaction) => {
-      const [freshStateSnapshot, freshEntrySnapshot, freshLockSnapshot] = await Promise.all([
-        transaction.get(stateRef),
+      const [freshEntrySnapshot, freshLockSnapshot, freshIdentityLockSnapshot] = await Promise.all([
         transaction.get(entryRef),
-        transaction.get(lockRef)
+        transaction.get(lockRef),
+        transaction.get(identityLockRef)
       ]);
 
       if (freshLockSnapshot.exists) {
         return (freshLockSnapshot.data() as RequestLockDoc).result;
       }
-
-      const freshQueueState = buildQueueStateDoc(
-        schoolData,
-        round,
-        freshStateSnapshot.exists ? (freshStateSnapshot.data() as QueueStateDoc) : null
-      );
 
       if (freshEntrySnapshot.exists) {
         const freshEntry = freshEntrySnapshot.data() as QueueEntryDoc;
@@ -986,8 +1163,8 @@ export const joinQueue = functionsV1.https.onCall(async (request: any, legacyCon
             success: true,
             accepted: true,
             number: freshEntry.number,
-            currentNumber: freshQueueState.currentNumber,
-            lastAssignedNumber: Math.max(freshQueueState.lastAssignedNumber, Number(freshEntry.number || 0)),
+            currentNumber: queueState.currentNumber,
+            lastAssignedNumber: Math.max(queueState.lastAssignedNumber, Number(freshEntry.number || 0)),
             status: freshEntry.status
           };
           transaction.set(lockRef, makeRequestLock('joinQueue', auth.uid, alreadyJoinedResult));
@@ -995,13 +1172,34 @@ export const joinQueue = functionsV1.https.onCall(async (request: any, legacyCon
         }
       }
 
-      const nextLastAssignedNumber = Math.max(freshQueueState.lastAssignedNumber, issued.number);
+      if (freshIdentityLockSnapshot.exists) {
+        const identityLock = freshIdentityLockSnapshot.data() as QueueIdentityLockDoc;
+        if (
+          identityLock.status === 'confirmed' ||
+          identityLock.status === 'waitlisted' ||
+          (identityLock.userId !== auth.uid && ACTIVE_QUEUE_ENTRY_STATUSES.includes(identityLock.status as QueueEntryStatus)) ||
+          (identityLock.userId !== auth.uid && identityLock.status === 'reserved')
+        ) {
+          const statusMessage =
+            identityLock.status === 'reserved'
+              ? `${buildQueueIdentityInUseMessage(sanitizedIdentity.studentName, sanitizedIdentity.phoneLast4)} 신청서 작성 시간이 아직 남아 있습니다.`
+              : identityLock.status === 'confirmed' || identityLock.status === 'waitlisted'
+                ? `${sanitizedIdentity.studentName} (${sanitizedIdentity.phoneLast4}) 정보로 이미 신청이 접수되어 있습니다. 조회 페이지에서 결과를 확인해 주세요.`
+                : buildQueueIdentityInUseMessage(sanitizedIdentity.studentName, sanitizedIdentity.phoneLast4);
+          throw new functions.https.HttpsError('already-exists', statusMessage);
+        }
+      }
+
+      const nextLastAssignedNumber = Math.max(queueState.lastAssignedNumber, issued.number);
       transaction.set(
         entryRef,
         {
           roundId: round.id,
           roundLabel: round.label,
           userId: auth.uid,
+          queueIdentityHash: sanitizedIdentity.identityHash,
+          applicantName: sanitizedIdentity.studentName,
+          applicantPhoneLast4: sanitizedIdentity.phoneLast4,
           number: issued.number,
           status: 'waiting',
           eligibleAt: null,
@@ -1012,21 +1210,23 @@ export const joinQueue = functionsV1.https.onCall(async (request: any, legacyCon
         } as QueueEntryDoc,
         { merge: true }
       );
-      transaction.set(
-        stateRef,
-        {
-          ...freshQueueState,
-          lastAssignedNumber: nextLastAssignedNumber,
-          updatedAt: now
-        },
-        { merge: true }
-      );
+      transaction.set(identityLockRef, {
+        roundId: round.id,
+        userId: auth.uid,
+        studentName: sanitizedIdentity.studentName,
+        phoneLast4: sanitizedIdentity.phoneLast4,
+        status: 'waiting',
+        queueNumber: issued.number,
+        sessionId: null,
+        registrationId: null,
+        updatedAt: now
+      } as QueueIdentityLockDoc, { merge: true });
 
       const createdJoinResult = {
         success: true,
         accepted: true,
         number: issued.number,
-        currentNumber: freshQueueState.currentNumber,
+        currentNumber: queueState.currentNumber,
         lastAssignedNumber: nextLastAssignedNumber,
         status: 'waiting'
       };
@@ -1034,22 +1234,10 @@ export const joinQueue = functionsV1.https.onCall(async (request: any, legacyCon
       return createdJoinResult;
     });
 
-    await advanceQueueForSchool(db, schoolId, round, { now: Date.now() });
-    const [finalStateSnapshot, finalEntrySnapshot] = await Promise.all([stateRef.get(), entryRef.get()]);
-    const finalState = buildQueueStateDoc(
-      schoolData,
-      round,
-      finalStateSnapshot.exists ? (finalStateSnapshot.data() as QueueStateDoc) : null
-    );
-    const finalEntry = finalEntrySnapshot.exists ? (finalEntrySnapshot.data() as QueueEntryDoc) : null;
-
-    return {
-      ...joinResult,
-      number: finalEntry?.number ?? joinResult.number ?? issued.number,
-      status: finalEntry?.status ?? joinResult.status,
-      currentNumber: finalState.currentNumber,
-      lastAssignedNumber: finalState.lastAssignedNumber
-    };
+    // No queueState writes here — joinQueue is now purely per-user writes.
+    // lastAssignedNumber is reconciled by autoAdvanceQueue (every 1 min)
+    // which queries queueEntries directly instead of relying on this cache.
+    return joinResult;
   } catch (error) {
     if (!issued.reused) {
       await clearQueueNumberFromRtdb(schoolId, round.id, auth.uid).catch(() => undefined);
@@ -1058,7 +1246,7 @@ export const joinQueue = functionsV1.https.onCall(async (request: any, legacyCon
   }
 });
 
-export const startRegistrationSession = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
+export const startRegistrationSession = standardRuntime.https.onCall(async (request: any, legacyContext?: any) => {
   const db = admin.firestore();
   const { data, auth, rawRequest } = normalizeCallableRequest(request, legacyContext);
   if (!auth) {
@@ -1142,6 +1330,9 @@ export const startRegistrationSession = functionsV1.https.onCall(async (request:
 
     const now = Date.now();
     let queueNumber: number | null = null;
+    let queueIdentityHash: string | null = null;
+    let applicantName: string | null = null;
+    let applicantPhoneLast4: string | null = null;
 
     if (isQueueEnabled(schoolData)) {
       if (!entrySnapshot.exists) {
@@ -1149,6 +1340,9 @@ export const startRegistrationSession = functionsV1.https.onCall(async (request:
       }
 
       const queueEntry = entrySnapshot.data() as QueueEntryDoc;
+      queueIdentityHash = queueEntry.queueIdentityHash || null;
+      applicantName = queueEntry.applicantName || null;
+      applicantPhoneLast4 = queueEntry.applicantPhoneLast4 || null;
       if (queueEntry.roundId !== round.id) {
         round = getRoundById(schoolData, queueEntry.roundId) || round;
         stateRef = queueStateRef(db, schoolId, round.id);
@@ -1199,6 +1393,9 @@ export const startRegistrationSession = functionsV1.https.onCall(async (request:
       roundId: round.id,
       roundLabel: round.label,
       userId: auth.uid,
+      queueIdentityHash,
+      applicantName,
+      applicantPhoneLast4,
       queueNumber,
       status: 'reserved',
       createdAt: now,
@@ -1208,6 +1405,19 @@ export const startRegistrationSession = functionsV1.https.onCall(async (request:
       registrationId: null,
       finalStatus: null
     } as ReservationDoc);
+    if (queueIdentityHash) {
+      transaction.set(queueIdentityLockRef(db, schoolId, round.id, queueIdentityHash), {
+        roundId: round.id,
+        userId: auth.uid,
+        studentName: applicantName || '',
+        phoneLast4: applicantPhoneLast4 || '',
+        status: 'reserved',
+        queueNumber,
+        sessionId: reservationId,
+        registrationId: null,
+        updatedAt: now
+      } as QueueIdentityLockDoc, { merge: true });
+    }
     transaction.set(stateRef, {
       ...nextState,
       pendingAdmissionCount: nextState.pendingAdmissionCount + promotionDocs.length,
@@ -1305,7 +1515,7 @@ export const forceExpireSession = functionsV1.https.onCall(async (request: any, 
   return { success: true, ...result };
 });
 
-export const heartbeatQueuePresence = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
+export const heartbeatQueuePresence = heartbeatRuntime.https.onCall(async (request: any, legacyContext?: any) => {
   const db = admin.firestore();
   const { data, auth } = normalizeCallableRequest(request, legacyContext);
   if (!auth) {
@@ -1320,11 +1530,14 @@ export const heartbeatQueuePresence = functionsV1.https.onCall(async (request: a
   const entryRef = queueEntriesRef(db, schoolId).doc(auth.uid);
   const now = Date.now();
   const entrySnapshot = await entryRef.get();
-  let cleanupResult = null;
 
   if (entrySnapshot.exists) {
     const entry = entrySnapshot.data() as QueueEntryDoc;
     if (entry.status === 'waiting' || entry.status === 'eligible') {
+      // Only update presence timestamp. Queue advancement and cleanup are
+      // handled by scheduled autoAdvanceQueue / cleanupExpiredReservations
+      // (every 1 minute). Removing them from heartbeat eliminates queueState
+      // write contention (~3 transactions per heartbeat × N concurrent users).
       await entryRef.set(
         {
           lastSeenAt: now,
@@ -1332,30 +1545,10 @@ export const heartbeatQueuePresence = functionsV1.https.onCall(async (request: a
         },
         { merge: true }
       );
-
-      cleanupResult = await cleanupStaleQueueEntriesForSchool(
-        db,
-        schoolId,
-        {
-          id: entry.roundId,
-          label: entry.roundLabel || (entry.roundId === 'round2' ? '2차' : '1차'),
-          openDateTime: '',
-          maxCapacity: 0,
-          waitlistCapacity: 0,
-          enabled: true
-        },
-        {
-          now,
-          limitPerStatus: 20
-        }
-      );
     }
   }
 
-  return {
-    success: true,
-    cleanupResult
-  };
+  return { success: true };
 });
 
 const ALLOWED_FORM_FIELDS = [
@@ -1401,7 +1594,11 @@ function sanitizeFormData(formData: any) {
   return sanitized;
 }
 
-export const confirmReservation = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
+function sanitizedFormDataQueueIdentityHash(formData: { studentName?: string; phone?: string } | Record<string, any>) {
+  return buildQueueIdentityHash(formData.studentName, formData.phone);
+}
+
+export const confirmReservation = standardRuntime.https.onCall(async (request: any, legacyContext?: any) => {
   const db = admin.firestore();
   const { data, auth, rawRequest } = normalizeCallableRequest(request, legacyContext);
   if (!auth) {
@@ -1482,14 +1679,24 @@ export const confirmReservation = functionsV1.https.onCall(async (request: any, 
       throw new functions.https.HttpsError('deadline-exceeded', '?깅줉 ?몄뀡??留뚮즺?섏뿀?듬땲??');
     }
 
-    const duplicateQuery = db
-      .collection(`schools/${schoolId}/registrations`)
-      .where('phone', '==', sanitizedFormData.phone)
-      .where('status', 'in', ['confirmed', 'waitlisted'])
-      .limit(1);
-    const duplicateSnapshot = await transaction.get(duplicateQuery);
-    if (!duplicateSnapshot.empty) {
-      throw new functions.https.HttpsError('already-exists', '?대? ?숈씪???꾪솕踰덊샇濡??좎껌???대젰???덉뒿?덈떎.');
+    const queueIdentityHash = sanitizedFormDataQueueIdentityHash(sanitizedFormData);
+    if (reservation.queueIdentityHash && reservation.queueIdentityHash !== queueIdentityHash) {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        '대기열 입장에 사용한 이름과 휴대폰 번호로만 신청서를 제출할 수 있습니다.'
+      );
+    }
+
+    const identityLockRef = queueIdentityLockRef(db, schoolId, round.id, queueIdentityHash);
+    const identityLockSnapshot = await transaction.get(identityLockRef);
+    if (identityLockSnapshot.exists) {
+      const identityLock = identityLockSnapshot.data() as QueueIdentityLockDoc;
+      if (
+        identityLock.userId !== auth.uid &&
+        (identityLock.status === 'confirmed' || identityLock.status === 'waitlisted' || identityLock.status === 'reserved')
+      ) {
+        throw new functions.https.HttpsError('already-exists', '이미 같은 휴대폰 번호로 진행 중인 신청이 있습니다.');
+      }
     }
 
     const { maxCapacity, waitlistCapacity } = getRoundCapacity(round);
@@ -1529,6 +1736,7 @@ export const confirmReservation = functionsV1.https.onCall(async (request: any, 
 
     transaction.set(registrationRef, {
       ...sanitizedFormData,
+      queueIdentityHash,
       id: registrationRef.id,
       schoolId,
       admissionRoundId: round.id,
@@ -1548,6 +1756,17 @@ export const confirmReservation = functionsV1.https.onCall(async (request: any, 
       registrationId: registrationRef.id,
       finalStatus: status
     });
+    transaction.set(identityLockRef, {
+      roundId: round.id,
+      userId: auth.uid,
+      studentName: sanitizedFormData.studentName,
+      phoneLast4: sanitizedFormData.phoneLast4,
+      status,
+      queueNumber: reservation.queueNumber ?? null,
+      sessionId,
+      registrationId: registrationRef.id,
+      updatedAt: now
+    } as QueueIdentityLockDoc, { merge: true });
     transaction.set(stateRef, {
       ...nextState,
       pendingAdmissionCount: nextState.pendingAdmissionCount + promotionDocs.length,
@@ -1644,27 +1863,38 @@ export const autoAdvanceQueue = functionsV1.pubsub
       const advanced = await db.runTransaction(async (transaction) => {
         const stateSnapshot = await transaction.get(stateRef);
         const queueState = buildQueueStateDoc(schoolData, round, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
-        const waitingCount = Math.max(0, queueState.lastAssignedNumber - queueState.currentNumber);
         const nowMs = Date.now();
 
-        if (waitingCount <= 0 || queueState.availableCapacity <= 0 || getAvailableWriterSlots(queueState) <= 0) {
-          return 0;
-        }
-        const advanceAmount = getQueueAdvanceAmount(queueState);
-        if (advanceAmount <= 0) {
+        if (queueState.availableCapacity <= 0 || getAvailableWriterSlots(queueState) <= 0) {
           return 0;
         }
 
-        const promotionDocs = await loadEntriesForPromotion(transaction, db, schoolId, round.id, queueState.currentNumber, advanceAmount);
+        // Same headroom-based approach as advanceQueueForSchool — no dependency
+        // on lastAssignedNumber. Query queueEntries directly for waiting entries.
+        const headroom = Math.min(
+          queueState.availableCapacity,
+          Math.max(0, queueState.maxActiveSessions - queueState.activeReservationCount - queueState.pendingAdmissionCount)
+        );
+        if (headroom <= 0) {
+          return 0;
+        }
+
+        const promotionDocs = await loadEntriesForPromotion(transaction, db, schoolId, round.id, queueState.currentNumber, headroom);
         const promotedCount = promoteEligibleEntries(transaction, promotionDocs, nowMs);
         if (promotedCount <= 0) {
           return 0;
         }
 
+        const maxPromotedNumber = Math.max(
+          queueState.lastAssignedNumber,
+          ...promotionDocs.map(doc => Number((doc.data() as QueueEntryDoc).number || 0))
+        );
+
         transaction.set(stateRef, {
           ...queueState,
           pendingAdmissionCount: queueState.pendingAdmissionCount + promotedCount,
           currentNumber: queueState.currentNumber + promotedCount,
+          lastAssignedNumber: maxPromotedNumber,
           lastAdvancedAt: nowMs,
           updatedAt: nowMs
         }, { merge: true });
@@ -1811,7 +2041,8 @@ export const resetSchoolState = functionsV1.https.onCall(async (request: any, le
     deleteCollectionInBatches(queueEntriesRef(db, schoolId)),
     deleteCollectionInBatches(reservationsRef(db, schoolId)),
     deleteCollectionInBatches(db.collection(`schools/${schoolId}/registrations`)),
-    deleteCollectionInBatches(db.collection(`schools/${schoolId}/requestLocks`))
+    deleteCollectionInBatches(db.collection(`schools/${schoolId}/requestLocks`)),
+    deleteCollectionInBatches(db.collection(`schools/${schoolId}/queueIdentityLocks`))
   ]);
   await queueIssuerRef(schoolId, 'round1').remove();
   await queueIssuerRef(schoolId, 'round2').remove();
@@ -1838,4 +2069,3 @@ export const resetSchoolState = functionsV1.https.onCall(async (request: any, le
 
   return { success: true };
 });
-
