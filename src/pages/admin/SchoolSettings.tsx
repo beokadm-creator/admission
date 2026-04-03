@@ -3,7 +3,7 @@
 import { useNavigate, useParams } from 'react-router-dom';
 import { useCallback } from 'react';
 import { useForm } from 'react-hook-form';
-import { collection, deleteField, doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
+import { deleteField, doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import {
   Activity,
@@ -24,7 +24,7 @@ import { db, functions } from '../../firebase/config';
 import RegistrationList from '../../components/RegistrationList';
 import { useAuth } from '../../contexts/AuthContext';
 import { SchoolConfig } from '../../types/models';
-import { normalizeAdmissionRounds } from '../../lib/admissionRounds';
+import { getAdmissionRoundTotal, getCurrentAdmissionRound, normalizeAdmissionRounds } from '../../lib/admissionRounds';
 
 interface SlotStats {
   total: number;
@@ -289,7 +289,9 @@ export default function SchoolSettings() {
 
   const watchedRound1RegularCapacity = watch('admissionRounds.0.maxCapacity') || 0;
   const watchedRound1WaitlistCapacity = watch('admissionRounds.0.waitlistCapacity') || 0;
+  const watchedRound1OpenDateTime = watch('admissionRounds.0.openDateTime') || '';
   const watchedRound2Enabled = watch('admissionRounds.1.enabled') === true;
+  const watchedRound2OpenDateTime = watch('admissionRounds.1.openDateTime') || '';
   const watchedRound2RegularCapacity = watch('admissionRounds.1.maxCapacity') || 0;
   const watchedRound2WaitlistCapacity = watch('admissionRounds.1.waitlistCapacity') || 0;
   const watchedMaxActiveSessions = watch('queueSettings.maxActiveSessions') || 60;
@@ -302,6 +304,45 @@ export default function SchoolSettings() {
     watchedRound1RegularCapacity +
     watchedRound1WaitlistCapacity +
     (watchedRound2Enabled ? watchedRound2RegularCapacity + watchedRound2WaitlistCapacity : 0);
+  const currentAdmissionRound = useMemo(
+    () =>
+      getCurrentAdmissionRound({
+        openDateTime: watchedRound1OpenDateTime,
+        maxCapacity: watchedRound1RegularCapacity,
+        waitlistCapacity: watchedRound1WaitlistCapacity,
+        admissionRounds: [
+          {
+            id: 'round1',
+            label: '1차',
+            openDateTime: watchedRound1OpenDateTime,
+            maxCapacity: watchedRound1RegularCapacity,
+            waitlistCapacity: watchedRound1WaitlistCapacity,
+            enabled: true
+          },
+          {
+            id: 'round2',
+            label: '2차',
+            openDateTime: watchedRound2OpenDateTime,
+            maxCapacity: watchedRound2RegularCapacity,
+            waitlistCapacity: watchedRound2WaitlistCapacity,
+            enabled: watchedRound2Enabled
+          }
+        ]
+      }),
+    [
+      watchedRound1OpenDateTime,
+      watchedRound1RegularCapacity,
+      watchedRound1WaitlistCapacity,
+      watchedRound2Enabled,
+      watchedRound2OpenDateTime,
+      watchedRound2RegularCapacity,
+      watchedRound2WaitlistCapacity
+    ]
+  );
+  const currentRoundTotalCapacity = useMemo(
+    () => getAdmissionRoundTotal(currentAdmissionRound),
+    [currentAdmissionRound]
+  );
   const selectedSuccessTemplate = useMemo(
     () => templateOptions.find((item) => item.templateCode === watchedSuccessTemplate),
     [templateOptions, watchedSuccessTemplate]
@@ -407,70 +448,42 @@ export default function SchoolSettings() {
   }, [adminProfile, navigate, schoolId, setValue]);
 
   useEffect(() => {
-    if (!schoolId) return;
+    if (!schoolId || !currentAdmissionRound) return;
 
-    const queueStateCollectionRef = collection(db, 'schools', schoolId, 'queueState');
+    const queueStateDocRef = doc(db, 'schools', schoolId, 'queueState', currentAdmissionRound.id);
     const unsubscribe = onSnapshot(
-      queueStateCollectionRef,
+      queueStateDocRef,
       (snapshot) => {
-        if (!snapshot.empty) {
-          const aggregated = snapshot.docs.reduce((acc, item) => {
-            const data = item.data();
-            acc.total += Number(data.totalCapacity || 0);
-            acc.reserved += Number(data.activeReservationCount || 0);
-            acc.confirmed += Number(data.confirmedCount || 0) + Number(data.waitlistedCount || 0);
-            acc.available += Number(data.availableCapacity || 0);
-            acc.waitlistedCount += Number(data.waitlistedCount || 0);
-            acc.currentNumber = Math.max(acc.currentNumber, Number(data.currentNumber || 0));
-            acc.lastAssignedNumber = Math.max(acc.lastAssignedNumber, Number(data.lastAssignedNumber || 0));
-            acc.pendingAdmissionCount += Number(data.pendingAdmissionCount || 0);
-            acc.lastUpdated = Math.max(acc.lastUpdated, Number(data.updatedAt || 0));
-            acc.lastAdvancedAt = Math.max(acc.lastAdvancedAt, Number(data.lastAdvancedAt || 0));
-            acc.maxActiveSessions = Math.max(acc.maxActiveSessions, Number(data.maxActiveSessions || 0));
-            acc.queueEnabled = acc.queueEnabled || data.queueEnabled !== false;
-            return acc;
-          }, {
-            total: 0,
-            reserved: 0,
-            confirmed: 0,
-            available: 0,
-            lastUpdated: 0,
-            currentNumber: 0,
-            lastAssignedNumber: 0,
-            pendingAdmissionCount: 0,
-            waitlistedCount: 0,
-            queueEnabled: false,
-            lastAdvancedAt: 0,
-            maxActiveSessions: 0
-          });
+        if (snapshot.exists()) {
+          const data = snapshot.data();
 
           setSlotStats({
-            total: aggregated.total || watchedRound1RegularCapacity + watchedRound1WaitlistCapacity,
-            reserved: aggregated.reserved,
-            confirmed: aggregated.confirmed,
-            available: aggregated.available || watchedRound1RegularCapacity + watchedRound1WaitlistCapacity,
-            lastUpdated: aggregated.lastUpdated || Date.now(),
-            currentNumber: aggregated.currentNumber,
-            lastAssignedNumber: aggregated.lastAssignedNumber,
-            pendingAdmissionCount: aggregated.pendingAdmissionCount,
-            waitlistedCount: aggregated.waitlistedCount,
-            queueEnabled: aggregated.queueEnabled,
-            lastAdvancedAt: aggregated.lastAdvancedAt,
-            maxActiveSessions: aggregated.maxActiveSessions || 60
+            total: Number(data.totalCapacity ?? currentRoundTotalCapacity),
+            reserved: Number(data.activeReservationCount ?? 0),
+            confirmed: Number(data.confirmedCount ?? 0) + Number(data.waitlistedCount ?? 0),
+            available: Number(data.availableCapacity ?? currentRoundTotalCapacity),
+            lastUpdated: Number(data.updatedAt ?? Date.now()),
+            currentNumber: Number(data.currentNumber ?? 0),
+            lastAssignedNumber: Number(data.lastAssignedNumber ?? 0),
+            pendingAdmissionCount: Number(data.pendingAdmissionCount ?? 0),
+            waitlistedCount: Number(data.waitlistedCount ?? 0),
+            queueEnabled: data.queueEnabled !== false,
+            lastAdvancedAt: Number(data.lastAdvancedAt ?? 0),
+            maxActiveSessions: Number(data.maxActiveSessions ?? 60)
           });
           return;
         }
 
-        setSlotStats(emptySlotStats(watchedRound1RegularCapacity + watchedRound1WaitlistCapacity));
+        setSlotStats(emptySlotStats(currentRoundTotalCapacity));
       },
       (error) => {
         console.error('Error fetching slot stats:', error);
-        setSlotStats(emptySlotStats(watchedRound1RegularCapacity + watchedRound1WaitlistCapacity));
+        setSlotStats(emptySlotStats(currentRoundTotalCapacity));
       }
     );
 
     return unsubscribe;
-  }, [schoolId, watchedRound1RegularCapacity, watchedRound1WaitlistCapacity]);
+  }, [currentAdmissionRound, currentRoundTotalCapacity, schoolId]);
 
   const loadReservations = useCallback(async () => {
     if (!schoolId) return;
@@ -791,6 +804,7 @@ export default function SchoolSettings() {
               <h2 className="mb-4 flex items-center text-lg font-semibold text-gray-900">
                 <Activity className="mr-2 h-5 w-5 text-blue-600" />
                 실시간 수용 현황
+                {currentAdmissionRound ? ` · ${currentAdmissionRound.label}` : ''}
               </h2>
 
               {slotStats ? (

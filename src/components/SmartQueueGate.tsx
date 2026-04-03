@@ -4,7 +4,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowRight, CheckCircle2, Clock3, Ticket, Users } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Clock3, Ticket, Users, X } from 'lucide-react';
 import { auth, db, functions } from '../firebase/config';
 import { useSchool } from '../contexts/SchoolContext';
 import {
@@ -946,7 +946,7 @@ export default function SmartQueueGate() {
               {schoolConfig?.programImageUrl && (
                 <button
                   onClick={() => setShowProgramImage(true)}
-                  className="mt-4 flex min-h-[56px] w-full items-center justify-center rounded-2xl border border-gray-300 bg-white px-5 py-3 text-base font-bold text-gray-700 transition hover:bg-gray-50"
+                  className="mt-4 flex min-h-[52px] w-full items-center justify-center rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm font-bold text-gray-700 transition hover:bg-gray-50 sm:min-h-[56px] sm:px-5 sm:text-base"
                 >
                   프로그램 이미지 보기
                 </button>
@@ -1068,9 +1068,37 @@ export default function SmartQueueGate() {
         </div>
 
         {showProgramImage && schoolConfig?.programImageUrl && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-4" onClick={() => setShowProgramImage(false)}>
-            <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-3xl bg-white p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}>
-              <img src={schoolConfig.programImageUrl} alt="Program Details" className="h-auto w-full object-contain" />
+          <div className="fixed inset-0 z-[100] bg-black/90 sm:p-4" onClick={() => setShowProgramImage(false)}>
+            <div className="flex h-full items-end justify-center sm:items-center">
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-label="프로그램 이미지"
+                className="flex h-[100dvh] w-full flex-col overflow-hidden bg-slate-950 sm:h-auto sm:max-h-[92vh] sm:w-auto sm:max-w-[min(96vw,1100px)] sm:rounded-3xl sm:bg-white sm:shadow-2xl"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-white sm:border-gray-200 sm:bg-white sm:text-gray-900">
+                  <div>
+                    <p className="text-sm font-semibold">프로그램 이미지</p>
+                    <p className="text-xs text-white/70 sm:text-gray-500">화면에 맞게 자동으로 축소되어 표시됩니다.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowProgramImage(false)}
+                    className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white transition hover:bg-white/20 sm:border-gray-200 sm:bg-gray-100 sm:text-gray-700 sm:hover:bg-gray-200"
+                    aria-label="이미지 닫기"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 sm:bg-white sm:p-4">
+                  <img
+                    src={schoolConfig.programImageUrl}
+                    alt="Program Details"
+                    className="block h-auto w-auto max-h-full max-w-full rounded-2xl object-contain shadow-2xl"
+                  />
+                </div>
+              </div>
             </div>
           </div>
         )}
