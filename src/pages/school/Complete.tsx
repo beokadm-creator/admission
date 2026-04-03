@@ -15,6 +15,7 @@ export default function CompletePage() {
 
   const isConfirmed = status === 'confirmed';
   const schoolName = schoolConfig?.name || '행사';
+  const schoolBrand = schoolConfig?.name || 'Admission';
   const submittedAt = new Date().toLocaleString('ko-KR');
 
   return (
@@ -27,9 +28,13 @@ export default function CompletePage() {
       <div className="max-w-lg w-full relative z-10">
         <div className="text-center mb-8 animate-fade-in-down">
           <div className="inline-flex items-center gap-3 py-2 px-4 bg-white/50 backdrop-blur-sm rounded-full border border-white shadow-sm">
-            <img src="/snu_logo.svg" alt="SNU Logo" className="w-8 h-8 object-contain" />
-            <div className="h-4 w-[1px] bg-gray-300" />
-            <span className="text-[13px] font-bold text-[#003B71] tracking-widest uppercase">Seoul National University</span>
+            {schoolConfig?.logoUrl ? (
+              <>
+                <img src={schoolConfig.logoUrl} alt={`${schoolName} 로고`} className="w-8 h-8 object-contain" />
+                <div className="h-4 w-[1px] bg-gray-300" />
+              </>
+            ) : null}
+            <span className="text-[13px] font-bold text-[#003B71] tracking-widest uppercase">{schoolBrand}</span>
           </div>
         </div>
 
@@ -50,7 +55,7 @@ export default function CompletePage() {
                 <h1 className="text-[28px] sm:text-[32px] font-black text-gray-900 mb-2 tracking-tighter leading-tight">
                   신청이 완료되었습니다
                 </h1>
-                <p className="text-gray-500 font-medium mb-8">접수가 정상적으로 반영되었으며, 현재 상태는 확정입니다.</p>
+                <p className="text-gray-500 font-medium mb-8">접수가 정상적으로 반영되었으며, 현재 상태는 최종 확정입니다.</p>
 
                 <div className="bg-[#003B71]/5 border border-[#003B71]/10 rounded-2xl p-6 mb-6 transition-all hover:bg-[#003B71]/8">
                   <p className="text-[17px] font-bold text-[#003B71] leading-relaxed">
@@ -72,13 +77,13 @@ export default function CompletePage() {
                 <h1 className="text-[28px] sm:text-[32px] font-black text-gray-900 mb-2 tracking-tighter leading-tight">
                   예비 접수가 완료되었습니다
                 </h1>
-                <p className="text-gray-500 font-medium mb-8">현재 상태는 예비 접수이며, 취소분이 생기면 순서대로 안내됩니다.</p>
+                <p className="text-gray-500 font-medium mb-8">현재 상태는 예비 접수이며, 결원이 발생하면 예비 순번대로 순차 안내됩니다.</p>
 
                 <div className="bg-[#B8860B]/5 border border-[#B8860B]/10 rounded-2xl p-6 mb-6 text-center">
                   <p className="text-[17px] font-bold text-[#8B6508] leading-relaxed">
                     현재 <span className="text-[#B8860B] border-b-2 border-[#B8860B]/30 pb-0.5 font-black tracking-wider">예비 {rank ?? '-'}번</span>으로 배정되었습니다.
                   </p>
-                  <p className="text-[14px] text-[#8B6508]/70 font-medium mt-3">승급 가능 시 입력한 연락처로 순차 안내해 드립니다.</p>
+                  <p className="text-[14px] text-[#8B6508]/70 font-medium mt-3">확정 가능 시 입력한 연락처로 안내 메시지가 발송됩니다.</p>
                 </div>
               </>
             )}
@@ -138,9 +143,8 @@ export default function CompletePage() {
         </div>
 
         <div className="mt-12 text-center animate-fade-in-up">
-          <p className="text-[14px] font-bold text-gray-900 mb-1">입학본부 문의: 02-880-5114</p>
           <p className="text-[11px] text-gray-400 font-medium tracking-widest uppercase opacity-70">
-            &copy; {new Date().getFullYear()} Seoul National University Admissions
+            &copy; {new Date().getFullYear()} {schoolName}
           </p>
         </div>
       </div>
