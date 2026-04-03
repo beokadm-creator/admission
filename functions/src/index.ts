@@ -561,6 +561,8 @@ export const onRegistrationCreateQueued = firestoreTriggers
     }
 
     const templateParams = {
+      NAME: newData.studentName,
+      NUMBER: String(newData.rank || ''),
       studentName: newData.studentName,
       schoolName: schoolConfig?.name || '학교'
     };
@@ -572,6 +574,7 @@ export const onRegistrationCreateQueued = firestoreTriggers
     if (newData.status === 'waitlisted' && alimtalkSettings.waitlistTemplate) {
       await sendAlimTalk(newData.phone, alimtalkSettings.waitlistTemplate, {
         ...templateParams,
+        NUMBER: String(newData.rank || ''),
         rank: newData.rank || 'Unknown'
       }, credentials);
     }
@@ -594,6 +597,7 @@ export const onRegistrationUpdateQueued = firestoreTriggers
 
       if (alimtalkSettings?.promoteTemplate) {
         await sendAlimTalk(newData.phone, alimtalkSettings.promoteTemplate, {
+          NAME: newData.studentName,
           studentName: newData.studentName,
           schoolName: schoolConfig?.name || '학교'
         }, credentials);
