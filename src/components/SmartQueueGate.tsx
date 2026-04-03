@@ -639,7 +639,7 @@ export default function SmartQueueGate() {
 
       localStorage.setItem(`registrationSessionId_${schoolId}`, result.data.sessionId);
       localStorage.setItem(`registrationExpiresAt_${schoolId}`, String(result.data.expiresAt));
-      navigate(`/${schoolId}/register`);
+      window.location.assign(`/${schoolId}/register`);
     } catch (error: unknown) {
       startRequestIdRef.current = null;
       setAutoEntering(false);
@@ -689,6 +689,13 @@ export default function SmartQueueGate() {
             이동 후 3분 이내에 작성을 완료해 주세요.
           </p>
           {errorMessage && <p className="mt-4 text-sm font-semibold text-rose-600">{errorMessage}</p>}
+          <button
+            onClick={() => void startRegistration()}
+            disabled={starting}
+            className="mt-6 flex w-full items-center justify-center rounded-2xl bg-stone-950 px-6 py-4 text-base font-bold text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-400"
+          >
+            {starting ? '신청서로 이동 중...' : '직접 신청서로 이동'}
+          </button>
         </div>
       </div>
     );
