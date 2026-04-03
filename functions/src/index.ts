@@ -197,7 +197,7 @@ async function assertAdminAccessToSchool(uid: string, schoolId: string) {
     return adminData;
   }
 
-  throw new functions.https.HttpsError('permission-denied', '해당 학교에 대한 접근 권한이 없습니다.');
+  throw new functions.https.HttpsError('permission-denied', '이 학교에 대한 접근 권한이 없습니다.');
 }
 
 async function getSchoolAlimTalkConfig(schoolId: string) {
@@ -382,7 +382,7 @@ export const lookupRegistration = functionsV1.https.onCall(async (request: any, 
     .get();
 
   if (snapshot.empty) {
-    throw new functions.https.HttpsError('not-found', '일치하는 신청 정보가 없습니다.');
+    throw new functions.https.HttpsError('not-found', '일치하는 신청 내역이 없습니다.');
   }
 
   const doc = snapshot.docs[0];
@@ -434,7 +434,7 @@ export const cancelRegistration = functionsV1.https.onCall(async (request: any, 
     ]);
 
     if (!regDoc.exists) {
-      throw new functions.https.HttpsError('not-found', '신청 정보를 찾을 수 없습니다.');
+      throw new functions.https.HttpsError('not-found', '신청 내역을 찾을 수 없습니다.');
     }
 
     if (!schoolDoc.exists) {

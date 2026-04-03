@@ -58,7 +58,7 @@ const TermsAccordion = ({ title, content, isOpen, onToggle, isChecked, onCheck }
       </div>
       <span className="flex-1 text-sm font-bold text-gray-800">{title}</span>
       <span className="text-gray-400">
-        <ChevronDown className={`h-5 w-5 transform transition-transform duration-200 ${isOpen ? "rotate-180 text-snu-blue" : ""}`} />
+        <ChevronDown className={`h-5 w-5 transform transition-transform duration-200 ${isOpen ? 'rotate-180 text-snu-blue' : ''}`} />
       </span>
     </div>
     {isOpen && (
@@ -133,7 +133,7 @@ export default function RegisterPage() {
         }
 
         setSessionId(storedSessionId);
-        setExpiresAt(result.data.expiresAt);
+        setExpiresAt(result.data.expiresAt || 0);
         setSlotReserved(true);
         setReservingSlot(false);
 
@@ -146,7 +146,7 @@ export default function RegisterPage() {
           }
         }
 
-        const remaining = Math.max(0, Math.floor((result.data.expiresAt - Date.now()) / 1000));
+        const remaining = Math.max(0, Math.floor(((result.data.expiresAt || 0) - Date.now()) / 1000));
         setSessionDuration(remaining || 180);
         setTimeLeft(remaining);
       } catch (error) {
@@ -168,8 +168,8 @@ export default function RegisterPage() {
       return;
     }
 
-      const handleExpired = () => {
-        if (navigatingRef.current) return;
+    const handleExpired = () => {
+      if (navigatingRef.current) return;
 
       navigatingRef.current = true;
       localStorage.removeItem(`registrationSessionId_${schoolId}`);
@@ -195,19 +195,19 @@ export default function RegisterPage() {
       window.setTimeout(() => navigate(`/${schoolId}/gate`), 2500);
     };
 
-      const tick = () => {
-        const now = Date.now();
-        const remaining = Math.max(0, Math.floor((expiresAt - now) / 1000));
-        setTimeLeft(remaining);
-        if (remaining <= 0) {
-          if (submitting && now <= expiresAt + SUBMIT_GRACE_MS) {
-            setSoftNoticeTone('info');
-            setSoftNotice('제출이 처리 중입니다. 응답이 돌아올 때까지 화면을 닫지 말아 주세요.');
-            return;
-          }
-          handleExpired();
+    const tick = () => {
+      const now = Date.now();
+      const remaining = Math.max(0, Math.floor((expiresAt - now) / 1000));
+      setTimeLeft(remaining);
+      if (remaining <= 0) {
+        if (submitting && now <= expiresAt + SUBMIT_GRACE_MS) {
+          setSoftNoticeTone('info');
+          setSoftNotice('제출이 처리 중입니다. 응답이 돌아올 때까지 화면을 닫지 말아 주세요.');
+          return;
         }
-      };
+        handleExpired();
+      }
+    };
 
     const timer = window.setInterval(tick, 1000);
 
@@ -272,6 +272,7 @@ export default function RegisterPage() {
         },
         ConfirmReservationResponse
       >(getFunctions(), 'confirmReservation');
+
       const formData = {
         studentName: data.studentName,
         phone: data.phone,
@@ -325,7 +326,11 @@ export default function RegisterPage() {
         setSoftNotice('이미 다른 계정으로 접수가 진행 중입니다. 안내를 받은 계정으로 계속 진행해 주세요.');
       } else {
         setSoftNoticeTone('error');
-        setSoftNotice(getFirebaseError(error)?.message === 'FULL_CAPACITY' ? '모집 정원과 예비 정원이 모두 마감되었습니다. 추가 모집이 있을 경우 별도로 안내해 드리겠습니다.' : getFirebaseError(error)?.message || '신청을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+        setSoftNotice(
+          getFirebaseError(error)?.message === 'FULL_CAPACITY'
+            ? '모집 정원과 예비 정원이 모두 마감되었습니다. 추가 모집이 있을 경우 별도로 안내해 드리겠습니다.'
+            : getFirebaseError(error)?.message || '신청을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.'
+        );
       }
     } finally {
       setSubmitting(false);
@@ -351,8 +356,8 @@ export default function RegisterPage() {
           <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full border border-amber-100 bg-amber-50">
             <Clock className="h-8 w-8 text-amber-500" />
           </div>
-          <h3 className="text-xl font-bold text-gray-900">?? ??? ???????</h3>
-          <p className="mt-2 text-sm font-medium text-gray-400">?? ???? ???? ????</p>
+          <h3 className="text-xl font-bold text-gray-900">입력 시간이 만료되었습니다</h3>
+          <p className="mt-2 text-sm font-medium text-gray-400">대기열 화면으로 이동합니다</p>
           <div className="mt-5 h-1 w-full overflow-hidden rounded-full bg-gray-100">
             <div className="h-full w-full animate-[shrink_2.5s_linear_forwards] bg-amber-400" />
           </div>
@@ -381,7 +386,7 @@ export default function RegisterPage() {
           <div className={`mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full border ${noticeStyle.iconWrap}`}>
             <AlertTriangle className={`h-8 w-8 ${noticeStyle.icon}`} />
           </div>
-          <h3 className="text-xl font-bold text-gray-900">??</h3>
+          <h3 className="text-xl font-bold text-gray-900">알림</h3>
           <p className="mt-3 text-sm leading-relaxed text-gray-600">{softNotice}</p>
         </div>
       </div>
@@ -396,8 +401,8 @@ export default function RegisterPage() {
             <div className="absolute inset-0 rounded-full border-4 border-gray-100" />
             <div className="absolute inset-0 animate-spin rounded-full border-4 border-snu-blue border-t-transparent" />
           </div>
-          <h3 className="text-xl font-bold tracking-tight text-gray-900">?? ?? ??? ???? ????</h3>
-          <p className="mt-2 text-sm font-medium uppercase tracking-widest text-gray-400">?? ?...</p>
+          <h3 className="text-xl font-bold tracking-tight text-gray-900">신청 가능 상태를 확인하고 있습니다</h3>
+          <p className="mt-2 text-sm font-medium uppercase tracking-widest text-gray-400">CONNECTING...</p>
         </div>
       </div>
     );
@@ -446,15 +451,15 @@ export default function RegisterPage() {
               {currentStyle.icon}
             </div>
             <div>
-              <p className="text-xs font-bold uppercase tracking-widest text-gray-400">?? ??</p>
+              <p className="text-xs font-bold uppercase tracking-widest text-gray-400">남은 시간</p>
               <p className="text-[11px] font-bold text-gray-900 sm:text-xs">
                 {timeLeft <= 60 ? (
                   <span className="flex items-center text-red-600 transition-all duration-500 animate-pulse">
                     <AlertTriangle className="mr-0.5 h-3 w-3" />
-                    ?? ?? ?? ?? ?
+                    작성 시간이 얼마 남지 않았습니다
                   </span>
                 ) : (
-                  '?? ?? ?? ??? ???'
+                  '신청서를 작성 중입니다'
                 )}
               </p>
             </div>
@@ -468,9 +473,9 @@ export default function RegisterPage() {
 
       <div className="w-full max-w-2xl animate-fade-in-up px-4 py-8 sm:py-10">
         <div className="mb-10 text-center">
-          <p className="mb-2 text-xs font-bold uppercase tracking-[0.3em] text-snu-blue">??? ??</p>
-          <h1 className="mb-2 text-2xl font-bold text-gray-900 sm:text-3xl">?? ??? ??</h1>
-          <p className="text-sm font-medium text-gray-400">??? ?? ?? ???? ???? ??? ???.</p>
+          <p className="mb-2 text-xs font-bold uppercase tracking-[0.3em] text-snu-blue">신청서 작성</p>
+          <h1 className="mb-2 text-2xl font-bold text-gray-900 sm:text-3xl">참가 신청서</h1>
+          <p className="text-sm font-medium text-gray-400">아래 양식을 작성하신 후 제출해 주세요.</p>
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
@@ -478,41 +483,41 @@ export default function RegisterPage() {
             <div className="absolute left-0 top-0 h-1 w-full bg-snu-blue" />
             <h2 className="mb-6 flex items-center text-lg font-bold text-gray-900">
               <span className="mr-2 flex h-6 w-6 items-center justify-center rounded-md bg-snu-blue text-[10px] font-bold uppercase text-white shadow-sm">01</span>
-              ??? ??
+              기본 정보
             </h2>
             <div className="space-y-6">
               <div>
                 <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">
-                  ?? ?? <span className="font-normal text-red-500">*</span>
+                  신청자 이름 <span className="font-normal text-red-500">*</span>
                 </label>
                 <input
                   {...register('studentName', { required: true })}
                   className="block min-h-[56px] w-full rounded-md border border-gray-100 bg-gray-50/50 p-4 text-base font-bold text-gray-900 outline-none transition-all placeholder:font-normal placeholder:text-gray-400 focus:border-snu-blue focus:bg-white focus:ring-1 focus:ring-snu-blue"
-                  placeholder="?? ??? ??? ???"
+                  placeholder="이름을 입력해 주세요"
                   autoFocus
                 />
                 {errors.studentName && (
                   <span className="mt-2 flex items-center text-sm font-bold tracking-tight text-red-500">
                     <AlertTriangle className="mr-1.5 h-4 w-4" />
-                    ??? ??? ???.
+                    이름을 입력해 주세요.
                   </span>
                 )}
               </div>
 
               <div>
                 <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">
-                  ???? <span className="font-normal text-red-500">*</span>
+                  연락처 <span className="font-normal text-red-500">*</span>
                 </label>
                 <input
                   {...register('phone', { required: true, pattern: /^010\d{8}$/ })}
                   className="block min-h-[56px] w-full rounded-md border border-gray-100 bg-gray-50/50 p-4 font-mono text-base tracking-widest text-gray-900 outline-none transition-all placeholder:font-sans placeholder:font-normal placeholder:tracking-normal placeholder:text-gray-400 focus:border-snu-blue focus:bg-white focus:ring-1 focus:ring-snu-blue"
-                  placeholder="01012345678 ???? ??"
+                  placeholder="01012345678 형태로 입력"
                   inputMode="numeric"
                 />
                 {errors.phone && (
                   <span className="mt-2 flex items-center text-sm font-bold tracking-tight text-red-500">
                     <AlertTriangle className="mr-1.5 h-4 w-4" />
-                    010?? ???? 11?? ??? ??? ???.
+                    010으로 시작하는 11자리 숫자를 입력해 주세요.
                   </span>
                 )}
               </div>
@@ -522,24 +527,24 @@ export default function RegisterPage() {
           <div className="rounded-lg border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
             <h2 className="mb-6 flex items-center text-lg font-bold text-gray-900">
               <span className="mr-2 flex h-6 w-6 items-center justify-center rounded-md border border-gray-100 bg-gray-50 text-[10px] font-bold uppercase text-gray-400">02</span>
-              ?? ??
+              추가 수집 정보
             </h2>
 
             <div className="space-y-5">
               {schoolConfig.formFields.collectStudentId && (
                 <div>
-                  <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">??</label>
+                  <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">학번</label>
                   <input
                     {...register('studentId')}
                     className="block min-h-[56px] w-full rounded-md border border-gray-100 bg-gray-50/50 p-4 text-base font-medium transition-all focus:border-snu-blue focus:bg-white focus:ring-1 focus:ring-snu-blue"
-                    placeholder="??? ??? ??? ???"
+                    placeholder="해당하는 경우 입력해 주세요"
                   />
                 </div>
               )}
 
               {schoolConfig.formFields.collectEmail && (
                 <div>
-                  <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">??? ??</label>
+                  <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">이메일 주소</label>
                   <input
                     {...register('email')}
                     type="email"
@@ -551,23 +556,23 @@ export default function RegisterPage() {
 
               {schoolConfig.formFields.collectSchoolName && (
                 <div>
-                  <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">???</label>
+                  <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">학교명</label>
                   <input
                     {...register('schoolName')}
                     className="block min-h-[56px] w-full rounded-md border border-gray-100 bg-gray-50/50 p-4 text-base font-medium transition-all focus:border-snu-blue focus:bg-white focus:ring-1 focus:ring-snu-blue"
-                    placeholder="?? ?? ???? ??? ???"
+                    placeholder="현재 재학 중인 학교명을 입력해 주세요"
                   />
                 </div>
               )}
 
               {schoolConfig.formFields.collectGrade && (
                 <div>
-                  <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">??</label>
+                  <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">학년</label>
                   <select
                     {...register('grade')}
                     className="block min-h-[56px] w-full rounded-md border border-gray-100 bg-gray-50/50 p-4 text-base font-medium text-gray-700 outline-none transition-all focus:border-snu-blue focus:bg-white focus:ring-1 focus:ring-snu-blue"
                   >
-                    <option value="">??? ??? ???</option>
+                    <option value="">학년을 선택해 주세요</option>
                     {schoolConfig.formFields.gradeOptions && schoolConfig.formFields.gradeOptions.length > 0 ? (
                       schoolConfig.formFields.gradeOptions.map((option) => (
                         <option key={option} value={option}>
@@ -576,10 +581,10 @@ export default function RegisterPage() {
                       ))
                     ) : (
                       <>
-                        <option value="1">1??</option>
-                        <option value="2">2??</option>
-                        <option value="3">3??</option>
-                        <option value="4">4?? ??</option>
+                        <option value="1">1학년</option>
+                        <option value="2">2학년</option>
+                        <option value="3">3학년</option>
+                        <option value="4">4학년 이상</option>
                       </>
                     )}
                   </select>
@@ -588,11 +593,11 @@ export default function RegisterPage() {
 
               {schoolConfig.formFields.collectAddress && (
                 <div>
-                  <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">??</label>
+                  <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">주소</label>
                   <input
                     {...register('address')}
                     className="block min-h-[56px] w-full rounded-md border border-gray-100 bg-gray-50/50 p-4 text-base font-medium transition-all focus:border-snu-blue focus:bg-white focus:ring-1 focus:ring-snu-blue"
-                    placeholder="??? ???? ??? ???"
+                    placeholder="상세 주소를 포함해 입력해 주세요"
                   />
                 </div>
               )}
@@ -602,7 +607,7 @@ export default function RegisterPage() {
                 !schoolConfig.formFields.collectSchoolName &&
                 !schoolConfig.formFields.collectGrade &&
                 !schoolConfig.formFields.collectAddress && (
-                  <p className="py-2 text-base font-medium text-gray-500">??? ??? ??? ????.</p>
+                  <p className="py-2 text-base font-medium text-gray-500">추가로 수집하는 정보가 없습니다.</p>
                 )}
             </div>
           </div>
@@ -610,7 +615,7 @@ export default function RegisterPage() {
           <div className="rounded-lg border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
             <h2 className="mb-6 flex items-center text-lg font-bold text-gray-900">
               <span className="mr-2 flex h-6 w-6 items-center justify-center rounded-md border border-gray-100 bg-gray-50 text-[10px] font-bold uppercase text-gray-400">03</span>
-              ?? ??
+              이용 약관 동의
             </h2>
 
             <div
@@ -629,7 +634,7 @@ export default function RegisterPage() {
                   <path d="M1 5L4.5 8.5L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </div>
-              <label className="cursor-pointer select-none text-lg font-bold text-snu-blue">?? ??? ?????</label>
+              <label className="cursor-pointer select-none text-lg font-bold text-snu-blue">필수 약관 전체 동의</label>
             </div>
 
             <div className="space-y-0 text-gray-800">
@@ -672,10 +677,10 @@ export default function RegisterPage() {
             {submitting ? (
               <span className="flex items-center justify-center text-base tracking-widest">
                 <div className="mr-3 h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                ?? ?...
+                처리 중입니다...
               </span>
             ) : (
-              '??? ????'
+              '참가 신청서 제출'
             )}
           </button>
         </form>
