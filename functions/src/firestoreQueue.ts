@@ -1383,9 +1383,11 @@ export const joinQueue = hotPathRuntime.https.onCall(async (request: any, legacy
       return createdJoinResult;
     });
 
-    // No queueState writes here — joinQueue is now purely per-user writes.
-    // lastAssignedNumber is reconciled by autoAdvanceQueue (every 1 min)
-    // which queries queueEntries directly instead of relying on this cache.
+    // Best-effort immediate advancement so users do not wait for the 1-minute
+    // scheduler tick when there is already available admission headroom.
+    await advanceQueueForSchool(db, schoolId, round, { now });
+
+    // queueState is still reconciled by the scheduled autoAdvanceQueue job.
     return joinResult;
   } catch (error) {
     if (!issued.reused) {
