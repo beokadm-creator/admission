@@ -91,6 +91,7 @@ function getCountdownParts(ms: number) {
 
 const RECENT_EXPIRY_SUPPRESSION_MS = 15 * 1000;
 const JOIN_RETRY_COOLDOWN_MS = 7 * 1000;
+const AUTO_ENTRY_TIMEOUT_MS = 15000;
 
 function getCallableErrorMessage(error: unknown, fallback: string) {
   if (typeof error === 'object' && error !== null && 'message' in error && typeof (error as { message?: unknown }).message === 'string') {
@@ -564,14 +565,23 @@ export default function SmartQueueGate() {
         { schoolId: string; roundId?: string; requestId: string | null },
         StartRegistrationResponse
       >(functions, 'startRegistrationSession');
-      const result = await callCallableWithRetry(
-        startFn,
-        { schoolId, roundId: myEntry?.roundId || selectedRound?.id, requestId: startRequestIdRef.current },
-        {
-          maxAttempts: 4,
-          getDelayMs: ({ attempt }) => 1000 + Math.floor(Math.random() * 1000) + (attempt - 1) * 2000
-        }
-      );
+      const result = await Promise.race([
+        callCallableWithRetry(
+          startFn,
+          { schoolId, roundId: myEntry?.roundId || selectedRound?.id, requestId: startRequestIdRef.current },
+          {
+            maxAttempts: 4,
+            getDelayMs: ({ attempt }) => 1000 + Math.floor(Math.random() * 1000) + (attempt - 1) * 2000
+          }
+        ),
+        new Promise<never>((_, reject) => {
+          window.setTimeout(() => {
+            const timeoutError = new Error('자동 입장이 지연되고 있습니다. 아래 버튼을 눌러 직접 다시 시도해 주세요.');
+            (timeoutError as FirebaseError & { code?: string }).code = 'functions/deadline-exceeded';
+            reject(timeoutError);
+          }, AUTO_ENTRY_TIMEOUT_MS);
+        })
+      ]);
 
       if (!result.data?.success) {
         throw new Error('입장 세션을 생성하지 못했습니다.');
@@ -583,13 +593,7 @@ export default function SmartQueueGate() {
     } catch (error: unknown) {
       startRequestIdRef.current = null;
       setAutoEntering(false);
-      autoStartedRef.current = false;
-      if (schoolId) {
-        const code = String((error as FirebaseError | undefined)?.code || '');
-        if (code.includes('deadline-exceeded') || code.includes('failed-precondition')) {
-          markRecentQueueExpiry(schoolId);
-        }
-      }
+      autoStartedRef.current = true;
       setErrorMessage(getCallableErrorMessage(error, '신청서 입장을 준비하지 못했습니다. 잠시 후 다시 시도해 주세요.'));
     } finally {
       setStarting(false);
@@ -829,7 +833,7 @@ export default function SmartQueueGate() {
                   {primaryActionLabel}
                   {!joining && <ArrowRight className="ml-2 h-5 w-5" />}
                 </button>
-              ) : canEnter && !suppressAutoEntry ? (
+              ) : canEnter ? (
                 <button
                   onClick={() => void startRegistration()}
                   disabled={starting}
@@ -961,7 +965,7 @@ export default function SmartQueueGate() {
               >
                 {primaryActionLabel}
               </button>
-            ) : canEnter && !suppressAutoEntry ? (
+            ) : canEnter ? (
               <button
                 onClick={() => void startRegistration()}
                 disabled={starting}
@@ -1076,4 +1080,3 @@ function normalizeJoinStatus(status: JoinQueueResponse['status'] | undefined): Q
 
   return 'waiting';
 }
-
