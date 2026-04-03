@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import * as functions from 'firebase-functions';
 import * as functionsV1 from 'firebase-functions/v1';
 import * as admin from 'firebase-admin';
@@ -185,7 +186,7 @@ async function assertAdminAccessToSchool(uid: string, schoolId: string) {
   const adminData = adminDoc.data();
 
   if (!adminDoc.exists || !adminData) {
-    throw new functions.https.HttpsError('permission-denied', '������ ������ �ʿ��մϴ�.');
+    throw new functions.https.HttpsError('permission-denied', '관리자 권한이 필요합니다.');
   }
 
   if (adminData.role === 'MASTER') {
@@ -196,7 +197,7 @@ async function assertAdminAccessToSchool(uid: string, schoolId: string) {
     return adminData;
   }
 
-  throw new functions.https.HttpsError('permission-denied', '�ش� �б��� ������ ������ �����ϴ�.');
+  throw new functions.https.HttpsError('permission-denied', '해당 학교에 대한 접근 권한이 없습니다.');
 }
 
 async function getSchoolAlimTalkConfig(schoolId: string) {
@@ -315,12 +316,12 @@ export const onRegistrationDelete = firestoreTriggers
 export const getAlimtalkTemplates = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
   const { data, auth } = normalizeCallableRequest(request, legacyContext);
   if (!auth) {
-    throw new functions.https.HttpsError('unauthenticated', '������ �ʿ��մϴ�.');
+    throw new functions.https.HttpsError('unauthenticated', '로그인이 필요합니다.');
   }
 
   const { schoolId, appKey, secretKey } = data;
   if (!appKey || !secretKey) {
-    throw new functions.https.HttpsError('invalid-argument', 'App Key�� Secret Key�� �ʿ��մϴ�.');
+    throw new functions.https.HttpsError('invalid-argument', 'App Key와 Secret Key가 필요합니다.');
   }
 
   if (!schoolId) {
@@ -351,7 +352,7 @@ export const getAlimtalkTemplates = functionsV1.https.onCall(async (request: any
       [];
 
     if (!isSuccessful) {
-      throw new functions.https.HttpsError('internal', responseBody.header?.resultMessage || 'NHN ���ø� ��ȸ�� �����߽��ϴ�.');
+      throw new functions.https.HttpsError('internal', responseBody.header?.resultMessage || 'NHN 템플릿 조회에 실패했습니다.');
     }
 
     return {
@@ -359,7 +360,7 @@ export const getAlimtalkTemplates = functionsV1.https.onCall(async (request: any
       templates
     };
   } catch (error: any) {
-    throw new functions.https.HttpsError('internal', error.response?.data?.message || error.message || '���ø� ��ȸ �� ������ �߻��߽��ϴ�.');
+    throw new functions.https.HttpsError('internal', error.response?.data?.message || error.message || '템플릿 조회 중 오류가 발생했습니다.');
   }
 });
 
@@ -368,7 +369,7 @@ export const lookupRegistration = functionsV1.https.onCall(async (request: any, 
   const { schoolId, studentName, phoneLast4 } = data?.data || data;
 
   if (!schoolId || !studentName || !phoneLast4) {
-    throw new functions.https.HttpsError('invalid-argument', '�ʼ� ������ �����Ǿ����ϴ�.');
+    throw new functions.https.HttpsError('invalid-argument', '필수 정보가 누락되었습니다.');
   }
 
   const snapshot = await admin
@@ -381,7 +382,7 @@ export const lookupRegistration = functionsV1.https.onCall(async (request: any, 
     .get();
 
   if (snapshot.empty) {
-    throw new functions.https.HttpsError('not-found', '��ġ�ϴ� ��û ������ �����ϴ�.');
+    throw new functions.https.HttpsError('not-found', '일치하는 신청 정보가 없습니다.');
   }
 
   const doc = snapshot.docs[0];
@@ -412,15 +413,15 @@ export const cancelRegistration = functionsV1.https.onCall(async (request: any, 
   );
 
   if (!cancelRateLimit.allowed) {
-    throw new functions.https.HttpsError('resource-exhausted', `��û�� �ʹ� �����ϴ�. ${cancelRateLimit.retryAfter}�� �� �ٽ� �õ��� �ּ���.`);
+    throw new functions.https.HttpsError('resource-exhausted', `요청이 너무 빈번합니다. ${cancelRateLimit.retryAfter}초 후에 다시 시도해 주세요.`);
   }
 
   if (!schoolId || !registrationId || !studentName || !phoneLast4) {
-    throw new functions.https.HttpsError('invalid-argument', '�ʼ� ������ �����Ǿ����ϴ�.');
+    throw new functions.https.HttpsError('invalid-argument', '필수 정보가 누락되었습니다.');
   }
 
   if (typeof phoneLast4 !== 'string' || !/^\d{4}$/.test(phoneLast4)) {
-    throw new functions.https.HttpsError('invalid-argument', '��ȭ��ȣ �� 4�ڸ��� �ùٸ��� �ʽ��ϴ�.');
+    throw new functions.https.HttpsError('invalid-argument', '전화번호 뒤 4자리가 올바르지 않습니다.');
   }
 
   const regRef = admin.firestore().doc(`schools/${schoolId}/registrations/${registrationId}`);
@@ -433,11 +434,11 @@ export const cancelRegistration = functionsV1.https.onCall(async (request: any, 
     ]);
 
     if (!regDoc.exists) {
-      throw new functions.https.HttpsError('not-found', '��û ������ ã�� �� �����ϴ�.');
+      throw new functions.https.HttpsError('not-found', '신청 정보를 찾을 수 없습니다.');
     }
 
     if (!schoolDoc.exists) {
-      throw new functions.https.HttpsError('not-found', '�б� ������ ã�� �� �����ϴ�.');
+      throw new functions.https.HttpsError('not-found', '학교 정보를 찾을 수 없습니다.');
     }
 
     const reg = regDoc.data()!;
@@ -452,11 +453,11 @@ export const cancelRegistration = functionsV1.https.onCall(async (request: any, 
     const totalCapacity = Number(queueState.totalCapacity || roundMeta.totalCapacity);
 
     if (reg.studentName !== studentName.trim() || reg.phoneLast4 !== phoneLast4) {
-      throw new functions.https.HttpsError('permission-denied', '���� Ȯ�ο� �����߽��ϴ�.');
+      throw new functions.https.HttpsError('permission-denied', '본인 확인에 실패했습니다.');
     }
 
     if (reg.status === 'canceled') {
-      throw new functions.https.HttpsError('failed-precondition', '�̹� ��ҵ� ��û�Դϴ�.');
+      throw new functions.https.HttpsError('failed-precondition', '이미 취소된 신청입니다.');
     }
 
     const prevStatus = reg.status as 'confirmed' | 'waitlisted';
@@ -498,12 +499,12 @@ export const cancelRegistration = functionsV1.https.onCall(async (request: any, 
 export const syncSchoolSlots = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
   const { data, auth } = normalizeCallableRequest(request, legacyContext);
   if (!auth) {
-    throw new functions.https.HttpsError('unauthenticated', '�α����� �ʿ��մϴ�.');
+    throw new functions.https.HttpsError('unauthenticated', '로그인이 필요합니다.');
   }
 
   const { schoolId, total } = data?.data || data;
   if (!schoolId || typeof total !== 'number') {
-    throw new functions.https.HttpsError('invalid-argument', 'schoolId�� total�� �ʿ��մϴ�.');
+    throw new functions.https.HttpsError('invalid-argument', 'schoolId와 total이 필요합니다.');
   }
 
   await assertAdminAccessToSchool(auth.uid, schoolId);
@@ -556,7 +557,7 @@ export const onRegistrationCreateQueued = firestoreTriggers
 
     const templateParams = {
       studentName: newData.studentName,
-      schoolName: schoolConfig?.name || '�б�'
+      schoolName: schoolConfig?.name || '학교'
     };
 
     if (newData.status === 'confirmed' && alimtalkSettings.successTemplate) {
@@ -589,7 +590,7 @@ export const onRegistrationUpdateQueued = firestoreTriggers
       if (alimtalkSettings?.promoteTemplate) {
         await sendAlimTalk(newData.phone, alimtalkSettings.promoteTemplate, {
           studentName: newData.studentName,
-          schoolName: schoolConfig?.name || '�б�'
+          schoolName: schoolConfig?.name || '학교'
         }, credentials);
       }
     }

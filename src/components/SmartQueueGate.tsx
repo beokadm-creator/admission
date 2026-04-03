@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { FirebaseError } from 'firebase/app';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowRight, CheckCircle2, Clock3, Info, Ticket, Users } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Clock3, Ticket, Users } from 'lucide-react';
 import { auth, db, functions } from '../firebase/config';
 import { useSchool } from '../contexts/SchoolContext';
 import {
@@ -73,15 +74,6 @@ function formatCountdown(ms: number) {
   return [hours, minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':');
 }
 
-function formatDetailedCountdown(ms: number) {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const days = Math.floor(totalSeconds / 86400);
-  const hours = Math.floor((totalSeconds % 86400) / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return `${days}d ${hours}h ${minutes}m ${seconds}s`;
-}
-
 function getCountdownParts(ms: number) {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
   const days = Math.floor(totalSeconds / 86400);
@@ -90,14 +82,23 @@ function getCountdownParts(ms: number) {
   const seconds = totalSeconds % 60;
 
   return [
-    { label: 'DAY', value: String(days).padStart(2, '0') },
-    { label: 'HOUR', value: String(hours).padStart(2, '0') },
-    { label: 'MIN', value: String(minutes).padStart(2, '0') },
-    { label: 'SEC', value: String(seconds).padStart(2, '0') }
+    { label: '일', value: String(days).padStart(2, '0') },
+    { label: '시간', value: String(hours).padStart(2, '0') },
+    { label: '분', value: String(minutes).padStart(2, '0') },
+    { label: '초', value: String(seconds).padStart(2, '0') }
   ];
 }
 
 const RECENT_EXPIRY_SUPPRESSION_MS = 15 * 1000;
+const JOIN_RETRY_COOLDOWN_MS = 7 * 1000;
+
+function getCallableErrorMessage(error: unknown, fallback: string) {
+  if (typeof error === 'object' && error !== null && 'message' in error && typeof (error as { message?: unknown }).message === 'string') {
+    return (error as { message: string }).message;
+  }
+
+  return fallback;
+}
 
 export default function SmartQueueGate() {
   const { schoolId } = useParams<{ schoolId: string }>();
@@ -122,6 +123,7 @@ export default function SmartQueueGate() {
   const [joiningElapsed, setJoiningElapsed] = useState(0);
   const [starting, setStarting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [joinCooldownUntil, setJoinCooldownUntil] = useState(0);
   const [now, setNow] = useState(Date.now());
   const [autoEntering, setAutoEntering] = useState(false);
   const [showProgramImage, setShowProgramImage] = useState(false);
@@ -143,36 +145,39 @@ export default function SmartQueueGate() {
   const openTimeMs = selectedRound?.openDateTime ? new Date(selectedRound.openDateTime).getTime() : 0;
   const isOpen = !!openTimeMs && now >= openTimeMs;
   const openDateLabel = formatDateLabel(openTimeMs);
-  const countdownLabel = formatCountdown(Math.max(0, openTimeMs - now));
-  const detailedCountdownLabel = formatDetailedCountdown(Math.max(0, openTimeMs - now));
   const countdownParts = getCountdownParts(Math.max(0, openTimeMs - now));
-  const gateHeadline = '2028학년도 서울대학교 입학전형의 안정적 준비를 위한 학부모 교육 프로그램';
+  const gateHeadline = '2028학년도 입학 접수를 위한 대기열 안내와 신청 절차를 이곳에서 확인하실 수 있습니다.';
   const programInfo =
     schoolConfig?.programInfo?.trim() ||
-    '행사 개요, 준비물, 유의사항은 이 영역에서 함께 확인할 수 있습니다.';
+    '행사 개요, 준비물, 유의사항은 아래 프로그램 안내 영역에서 바로 확인하실 수 있습니다.';
 
   const normalizedQueuePhone = normalizeQueuePhone(queueIdentity.phone);
   const queueIdentityReady = queueIdentity.studentName.trim().length > 0 && /^010\d{8}$/.test(normalizedQueuePhone);
+  const joinCooldownSeconds = Math.max(0, Math.ceil((joinCooldownUntil - now) / 1000));
+  const joinCooldownActive = joinCooldownSeconds > 0;
   const recentExpiryAt = schoolId ? getRecentQueueExpiry(schoolId) : 0;
   const suppressAutoEntry = !!recentExpiryAt && now - recentExpiryAt < RECENT_EXPIRY_SUPPRESSION_MS;
   const friendlyErrorMessage = useMemo(() => {
     if (!errorMessage) return null;
-    if (errorMessage.includes('이미 진행 중인 대기열') || errorMessage.includes('이미 신청이 접수')) {
+    if (errorMessage.includes('이미 진행 중인 대기열') || errorMessage.includes('이미 요청이 접수')) {
       return errorMessage;
     }
-    if (errorMessage.includes('schoolId') || errorMessage.includes('휴대폰 번호') || errorMessage.includes('이름')) {
+    if (errorMessage.includes('schoolId') || errorMessage.includes('대기번호') || errorMessage.includes('이름')) {
       return errorMessage;
     }
-    if (errorMessage.includes('운영 상한') || errorMessage.includes('정원이 없습니다')) {
-      return '현재 대기열이 마감되었습니다. 추가 모집이 있을 경우 안내됩니다.';
+    if (errorMessage.includes('FULL_CAPACITY')) {
+      return '모집 정원과 예비 정원이 모두 마감되었습니다. 추가 모집이 있을 경우 별도로 안내해 드리겠습니다.';
     }
-    if (errorMessage.includes('요청이 너무 빈번') || errorMessage.includes('초 후')) {
-      return '잠시 후 자동으로 다시 시도됩니다. 새로고침하지 마세요.';
+    if (errorMessage.includes('운영 상한') || errorMessage.includes('정원이 없습니다') || errorMessage.includes('이용 가능한 접수 인원이 없습니다')) {
+      return '현재 대기열이 마감되었습니다. 추가 모집이 있을 경우 별도로 안내해 드리겠습니다.';
     }
-    return '접속자가 많아 처리가 지연되고 있습니다. 새로고침하지 말고 잠시만 기다려 주세요.';
+    if (errorMessage.includes('요청이 너무 빈번') || errorMessage.includes('초 후에 다시 시도')) {
+      return '요청이 몰려 자동으로 다시 시도하고 있습니다. 화면을 닫지 말고 잠시만 기다려 주세요.';
+    }
+
+    return '접속이 많아 처리가 지연되고 있습니다. 화면을 닫지 말고 잠시만 기다려 주세요.';
   }, [errorMessage]);
 
-  // Track elapsed time while joining and warn before page unload
   useEffect(() => {
     if (!joining) {
       setJoiningElapsed(0);
@@ -244,7 +249,7 @@ export default function SmartQueueGate() {
       })
       .catch(() => {
         if (!cancelled) {
-          setErrorMessage('대기열 준비 중 인증 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+          setErrorMessage('로그인 정보를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.');
         }
       });
 
@@ -328,57 +333,47 @@ export default function SmartQueueGate() {
   const queueJoinLimit = Math.max(1, Math.ceil(getAdmissionRoundTotal(selectedRound) * 1.5));
   const queueLimitReached = !myEntry && queueState.lastAssignedNumber >= queueJoinLimit;
   const selectedRoundStatusLabel = !isOpen
-    ? '오픈 대기'
+    ? '오픈 전'
     : remainingCapacity <= 0 || queueLimitReached
       ? '접수 마감'
       : '접수 진행 중';
   const waitingDisplayValue = myNumber === null ? '-' : waitingAhead.toLocaleString();
   const waitingDisplayHelper =
     myNumber === null
-      ? '대기번호를 받으면 앞 대기 인원이 표시됩니다'
+      ? '대기번호를 받으면 여기에 표시됩니다.'
       : waitingAhead > 0
-        ? `예상 ${estimatedWaitMinutes}분`
+        ? `예상 대기 시간 약 ${estimatedWaitMinutes}분입니다.`
         : canEnter
-          ? '지금 입장 가능'
-          : '곧 입장 예정';
+          ? '지금 바로 입장할 수 있습니다.'
+          : '순차를 확인하고 있습니다.';
   const joinDisabledReason =
     !myEntry || myEntry.status === 'expired'
       ? !isOpen
-        ? `접수는 ${openDateLabel}에 시작됩니다. 오픈 전에는 버튼이 비활성화됩니다.`
+        ? `접수는 ${openDateLabel}에 시작됩니다. 오픈 시간 이후 다시 확인해 주세요.`
         : remainingCapacity <= 0
-          ? '모집 정원과 예비 정원이 모두 마감되어 더 이상 새로운 대기번호를 발급할 수 없습니다.'
+          ? '현재 신청 가능한 인원이 모두 마감되어 더 이상 대기열에 진입할 수 없습니다.'
           : queueLimitReached
-            ? `대기 접수 상한 ${queueJoinLimit.toLocaleString()}명(정규+예비의 1.5배)에 도달해 버튼이 비활성화되었습니다. 이미 번호를 받은 분들만 계속 진행할 수 있습니다.`
+            ? `대기열 접수는 ${queueJoinLimit.toLocaleString()}번에서 마감되었습니다. 이미 번호를 받은 분들만 계속 진행할 수 있습니다.`
             : null
       : null;
   const buttonStatusMessage = canEnter
-    ? '지금 신청 가능합니다. 3분 안에 제출하지 않으시면 기회가 양보됩니다.'
+    ? '지금 바로 신청서를 작성할 수 있습니다. 3분 안에 작성과 제출을 완료해 주세요.'
     : myEntry?.status === 'expired'
-      ? '이전 신청 기회가 종료되었습니다. 지속 참가하시려면 대기열에 다시 입장해 새 번호를 받아주십시오.'
-      : queueLimitReached
-        ? `대기 접수 상한 ${queueJoinLimit.toLocaleString()}명에 도달해 버튼이 비활성화되었습니다. 이미 번호를 받으신 분들만 입장이 가능합니다.`
-        : joinDisabledReason || '오픈 시각에 활성화되는 버튼을 누르시면 대기번호가 발급됩니다.';
+      ? '작성 가능 시간이 만료되었습니다. 다시 신청하려면 대기열에 다시 입장해 번호를 받아야 합니다.'
+      : joinCooldownActive
+        ? `요청을 다시 준비 중입니다. ${joinCooldownSeconds}초 후 다시 시도해 주세요.`
+        : queueLimitReached
+          ? `대기열 접수는 ${queueJoinLimit.toLocaleString()}번에서 마감되었습니다. 이미 번호를 받은 분들만 신청을 진행할 수 있습니다.`
+          : joinDisabledReason || '아래 버튼을 눌러 대기번호를 발급받고 순서에 따라 신청을 진행해 주세요.';
   const primaryActionLabel = joining
     ? joiningElapsed >= 10
       ? `서버가 처리 중입니다 (${joiningElapsed}초)... 화면을 닫지 마세요`
       : `${selectedRound?.label || ''} 대기번호 발급 중...`
-    : myEntry?.status === 'expired'
-      ? `${selectedRound?.label || ''} 대기열 다시 입장하기`
-      : `${selectedRound?.label || ''} 대기열 입장하기`;
-
-  useEffect(() => {
-    if (!canEnter || !isOpen || !schoolId || loading || autoStartedRef.current) return;
-    if (suppressAutoEntry) return;
-
-    autoStartedRef.current = true;
-    setAutoEntering(true);
-
-    const timer = window.setTimeout(() => {
-      void startRegistration();
-    }, 2000);
-
-    return () => window.clearTimeout(timer);
-  }, [canEnter, isOpen, schoolId, loading, suppressAutoEntry]);
+    : joinCooldownActive
+      ? `${joinCooldownSeconds}초 후 다시 시도`
+      : myEntry?.status === 'expired'
+        ? `${selectedRound?.label || ''} 다시 입장하기`
+        : `${selectedRound?.label || ''} 대기열 입장`;
 
   useEffect(() => {
     if (!schoolId) return;
@@ -430,43 +425,43 @@ export default function SmartQueueGate() {
 
   const myStatusMessage = useMemo(() => {
     if (!isOpen) {
-      return `현재는 ${selectedRound?.label || '선택한 차수'} 오픈 전입니다. 카드에서 오픈 시각과 접수 상태를 먼저 확인해 주세요.`;
+      return `현재는 ${selectedRound?.label || '선택한 차수'} 오픈 전입니다. 카드에서 시작 시간과 접수 상태를 먼저 확인해 주세요.`;
     }
 
     if (myEntry?.status === 'expired') {
-      return '이전 작성 기회가 만료되었습니다. 다시 신청하려면 대기열에 다시 입장해 새 번호를 받아야 합니다.';
+      return '이전 작성 기회가 만료되었습니다. 다시 신청하려면 대기열에 다시 입장해 번호를 받아야 합니다.';
     }
 
     if (myNumber === null) {
       if (queueLimitReached) {
-        return '대기 접수 상한에 도달해 새 번호 발급이 마감되었습니다. 이미 번호를 받은 분들만 계속 진행합니다.';
+        return '대기열 접수 상한에 도달해 번호 발급이 마감되었습니다. 이미 번호를 받은 분들만 계속 진행합니다.';
       }
       if (remainingCapacity <= 0) {
         return '현재 모집 정원과 예비 정원이 모두 마감되었습니다.';
       }
-      return '버튼을 누르면 서버가 즉시 공식 대기번호를 발급하고, 번호 순서대로 신청 기회를 엽니다.';
+      return '버튼을 누르면 서버가 즉시 공식 대기번호를 발급하고, 번호 순서대로 신청 기회가 열립니다.';
     }
 
     if (canEnter) {
-      return '지금 신청서를 작성하실 수 있습니다. 잠시 후 신청 페이지로 자동 이동합니다.';
+      return '지금 신청서를 작성할 수 있습니다. 제출 전 연락처와 이름을 다시 확인해 주세요.';
     }
 
     if (remainingCapacity <= 0) {
-      return '전체 모집은 마감되었지만, 취소나 세션 만료가 생기면 일부 순번에 추가 기회가 열릴 수 있습니다.';
+      return '현재 모집 정원은 모두 소진되었고, 남은 순번은 예비 등록 가능 여부에 따라 안내됩니다.';
     }
 
     if (queueState.availableCapacity <= 0) {
-      return '현재 작성 가능한 자리가 모두 사용 중입니다. 제출이나 세션 만료가 발생하면 다음 순번이 열립니다.';
+      return '현재 이용 가능한 신청 인원이 모두 찼습니다. 잠시 후 다시 자동으로 입장 기회를 확인합니다.';
     }
 
     if (waitingAhead === 0) {
-      return '곧 입장 순서가 됩니다. 화면을 유지하면 입장 가능 상태가 자동으로 반영됩니다.';
+      return '곧 입장 순서가 됩니다. 화면을 유지한 채 잠시만 기다려 주세요.';
     }
 
-    return `앞에 약 ${waitingAhead}명이 대기 중이며, 예상 대기 시간은 약 ${estimatedWaitMinutes}분입니다.`;
-  }, [canEnter, estimatedWaitMinutes, isOpen, maxActiveSessions, myEntry?.status, myNumber, queueLimitReached, queueState.availableCapacity, remainingCapacity, waitingAhead]);
+    return `내 앞에 ${waitingAhead}명이 대기 중이며, 예상 대기 시간은 약 ${estimatedWaitMinutes}분입니다.`;
+  }, [canEnter, estimatedWaitMinutes, isOpen, myEntry?.status, myNumber, queueLimitReached, queueState.availableCapacity, remainingCapacity, selectedRound?.label, waitingAhead]);
 
-  const ensureQueueUserId = async () => {
+  const ensureQueueUserId = useCallback(async () => {
     if (auth.currentUser?.uid) {
       setUserId(auth.currentUser.uid);
       return auth.currentUser.uid;
@@ -475,12 +470,12 @@ export default function SmartQueueGate() {
     const nextUserId = await getQueueUserId();
     setUserId(nextUserId);
     return nextUserId;
-  };
+  }, []);
 
-  const joinQueue = async () => {
-    if (!schoolId || joining || !isOpen) return;
+  async function joinQueue() {
+    if (!schoolId || joining || !isOpen || joinCooldownActive) return;
     if (!queueIdentityReady) {
-      setErrorMessage('대기열 입장 전 이름과 휴대폰 번호를 정확히 입력해 주세요.');
+      setErrorMessage('이름과 연락처를 정확히 입력한 후 대기열에 입장해 주세요.');
       return;
     }
 
@@ -533,16 +528,17 @@ export default function SmartQueueGate() {
           activeReservationId: prev?.activeReservationId ?? null
         }));
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       joinRequestIdRef.current = null;
-      setErrorMessage(error?.message || '대기열 입장에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+      setJoinCooldownUntil(Date.now() + JOIN_RETRY_COOLDOWN_MS);
+      setErrorMessage(getCallableErrorMessage(error, '대기열 입장에 실패했습니다. 잠시 후 다시 시도해 주세요.'));
     } finally {
       joinRequestIdRef.current = null;
       setJoining(false);
     }
-  };
+  }
 
-  const startRegistration = async () => {
+  const startRegistration = useCallback(async () => {
     if (!schoolId || starting || !isOpen) return;
 
     setStarting(true);
@@ -567,34 +563,48 @@ export default function SmartQueueGate() {
       );
 
       if (!result.data?.success) {
-        throw new Error('?깅줉 ?몄뀡 ?앹꽦???ㅽ뙣?덉뒿?덈떎.');
+        throw new Error('입장 세션을 생성하지 못했습니다.');
       }
 
       localStorage.setItem(`registrationSessionId_${schoolId}`, result.data.sessionId);
       localStorage.setItem(`registrationExpiresAt_${schoolId}`, String(result.data.expiresAt));
       navigate(`/${schoolId}/register`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       startRequestIdRef.current = null;
       setAutoEntering(false);
       autoStartedRef.current = false;
       if (schoolId) {
-        const code = String(error?.code || '');
+        const code = String((error as FirebaseError | undefined)?.code || '');
         if (code.includes('deadline-exceeded') || code.includes('failed-precondition')) {
           markRecentQueueExpiry(schoolId);
         }
       }
-      setErrorMessage(error?.message || '신청 페이지로 이동하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      setErrorMessage(getCallableErrorMessage(error, '신청서 입장을 준비하지 못했습니다. 잠시 후 다시 시도해 주세요.'));
     } finally {
       setStarting(false);
     }
-  };
+  }, [ensureQueueUserId, isOpen, myEntry?.roundId, navigate, schoolId, selectedRound?.id, starting]);
+
+  useEffect(() => {
+    if (!canEnter || !isOpen || !schoolId || loading || autoStartedRef.current) return;
+    if (suppressAutoEntry) return;
+
+    autoStartedRef.current = true;
+    setAutoEntering(true);
+
+    const timer = window.setTimeout(() => {
+      void startRegistration();
+    }, 2000);
+
+    return () => window.clearTimeout(timer);
+  }, [canEnter, isOpen, loading, schoolId, suppressAutoEntry, startRegistration]);
 
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-snu-gray px-4">
         <div className="text-center">
           <div className="mx-auto mb-5 h-14 w-14 animate-spin rounded-full border-4 border-gray-200 border-t-snu-blue" />
-          <p className="text-sm font-bold tracking-wider text-gray-500">CONNECTING...</p>
+          <p className="text-sm font-bold tracking-wider text-gray-500">?? ?...</p>
         </div>
       </div>
     );
@@ -607,11 +617,11 @@ export default function SmartQueueGate() {
           <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50">
             <CheckCircle2 className="h-8 w-8 text-emerald-500" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-900">지금 입장 가능합니다</h2>
+          <h2 className="text-2xl font-bold text-gray-900">??? ??? ???? ????</h2>
           <p className="mt-3 text-sm leading-relaxed text-gray-600">
-            신청 페이지로 자동 이동 중입니다.
+            ?? ??? ??? ?? ???? ???? ????.
             <br />
-            작성 시간은 3분이며, 초과 시 자동으로 만료됩니다.
+            ?? ? 3? ?? ???? ??? ???.
           </p>
           {errorMessage && <p className="mt-4 text-sm font-semibold text-rose-600">{errorMessage}</p>}
         </div>
@@ -626,18 +636,18 @@ export default function SmartQueueGate() {
           <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-stone-100">
             <Ticket className="h-8 w-8 text-stone-700" />
           </div>
-          <h1 className="text-3xl font-black tracking-tight text-stone-950">대기열 없이 바로 신청이 가능한 과정입니다.</h1>
+          <h1 className="text-3xl font-black tracking-tight text-stone-950">??? ??? ?? ?? ??? ? ????</h1>
           <p className="mt-3 text-base leading-relaxed text-stone-600">
-            오픈 시각이 되면 서버가 바로 신청 세션을 열어드리며, 별도 대기열 없이 신청이 가능합니다.
+            ?? ?? ??? ??? ?? ?? ?? ???? ??? ? ????.
           </p>
           <button
             onClick={() => void startRegistration()}
             disabled={!isOpen || starting}
             className="mt-6 flex w-full items-center justify-center rounded-2xl bg-stone-950 px-6 py-4 text-base font-bold text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-400"
           >
-            {starting ? '신청 페이지 준비 중...' : isOpen ? '지금 바로 신청하기' : '오픈 대기 중'}
+            {starting ? '?? ??? ?? ?...' : isOpen ? '?? ????' : '?? ?? ?'}
           </button>
-          <p className="mt-4 text-sm text-stone-500">오픈 시간(KST): {openDateLabel}</p>
+          <p className="mt-4 text-sm text-stone-500">?? ??(KST): {openDateLabel}</p>
           {errorMessage && <p className="mt-4 text-sm font-semibold text-rose-600">{errorMessage}</p>}
         </div>
       </div>
@@ -656,14 +666,14 @@ export default function SmartQueueGate() {
                     <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-white/15 bg-white/95 p-2 shadow-lg">
                       <img
                         src={schoolConfig.logoUrl}
-                        alt={`${schoolConfig?.name || '학교'} 로고`}
+                        alt={`${schoolConfig?.name || '??'} ??`}
                         className="max-h-full max-w-full object-contain"
                       />
                     </div>
                   ) : null}
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.3em] text-white/70">QUEUE ACCESS</p>
-                    <h1 className="mt-2 text-2xl font-bold leading-tight sm:text-4xl">{schoolConfig?.name || '행사 신청 대기열'}</h1>
+                    <p className="text-xs font-bold uppercase tracking-[0.3em] text-white/70">?? ??</p>
+                    <h1 className="mt-2 text-2xl font-bold leading-tight sm:text-4xl">{schoolConfig?.name || "?? ?? ???"}</h1>
                     <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/85 sm:text-base">
                       {gateHeadline}
                     </p>
@@ -691,15 +701,15 @@ export default function SmartQueueGate() {
                       >
                         <p className={`text-xs font-semibold uppercase tracking-[0.2em] ${isSelected ? 'text-snu-blue/70' : 'text-white/60'}`}>{round.label}</p>
                         <p className="mt-2 text-sm font-bold leading-snug sm:text-base">{formatDateLabel(roundOpenTime)}</p>
-                    <p className={`mt-2 text-[11px] leading-relaxed sm:mt-3 sm:text-xs ${isSelected ? 'text-snu-blue/70' : 'text-white/75'}`}>
+                        <p className={`mt-2 text-[11px] leading-relaxed sm:mt-3 sm:text-xs ${isSelected ? 'text-snu-blue/70' : 'text-white/75'}`}>
                           {isSelected
                             ? (roundIsOpen
-                                ? (remainingCapacity <= 0 || queueLimitReached ? '현재 접수는 마감되었습니다' : '현재 버튼이 열려 있습니다')
-                                : `오픈까지 ${formatCountdown(Math.max(0, roundOpenTime - now))}`)
-                            : (roundIsOpen ? '선택하면 현재 상태를 확인할 수 있습니다' : `오픈까지 ${formatCountdown(Math.max(0, roundOpenTime - now))}`)}
+                                ? (remainingCapacity <= 0 || queueLimitReached ? '?? ??? ???????' : '?? ??? ??? ?????')
+                                : `???? ${formatCountdown(Math.max(0, roundOpenTime - now))}`)
+                            : (roundIsOpen ? '???? ?? ??? ??? ? ????' : `???? ${formatCountdown(Math.max(0, roundOpenTime - now))}`)}
                         </p>
                         <p className={`mt-2 text-[11px] font-semibold sm:mt-3 ${isSelected ? 'text-snu-blue/80' : 'text-white/70'}`}>
-                          {isSelected ? selectedRoundStatusLabel : (roundIsOpen ? '선택 가능' : '오픈 전')}
+                          {isSelected ? selectedRoundStatusLabel : (roundIsOpen ? '?? ??' : '?? ?')}
                         </p>
                       </button>
                     );
@@ -709,7 +719,7 @@ export default function SmartQueueGate() {
 
               <div className="rounded-3xl border border-white/15 bg-white/10 p-5 backdrop-blur-sm sm:p-6">
                 <p className="text-xl font-bold leading-tight sm:text-3xl">
-                  {remainingCapacity <= 0 || queueLimitReached ? `${selectedRound?.label || '해당 차수'} 마감` : isOpen ? `${selectedRound?.label || '해당 차수'} 순차 입장 진행 중` : `${selectedRound?.label || '해당 차수'} 오픈 대기 중`}
+                  {remainingCapacity <= 0 || queueLimitReached ? `${selectedRound?.label || "?? ??"} ??` : isOpen ? `${selectedRound?.label || "?? ??"} ??? ?? ?? ?` : `${selectedRound?.label || "?? ??"} ?? ?? ?`}
                 </p>
                 <p className="mt-2 text-sm text-white/80">{openDateLabel}</p>
                 <div className="mt-5 rounded-2xl border border-white/15 bg-black/10 p-4">
@@ -730,27 +740,27 @@ export default function SmartQueueGate() {
           <div className="grid grid-cols-2 gap-3 bg-gray-50 p-4 sm:gap-4 sm:p-6 xl:grid-cols-4">
             <MetricCard
               icon={<Users className="h-5 w-5" />}
-              label="발급된 번호"
+              label='?? ??'
               value={queueState.lastAssignedNumber}
-              helper={`버튼 클릭으로 발급된 전체 대기번호 / 상한 ${queueJoinLimit.toLocaleString()}명`}
+              helper={`???? ??? ???? ? / ?? ${queueJoinLimit.toLocaleString()}?`}
             />
             <MetricCard
               icon={<Ticket className="h-5 w-5" />}
-              label="현재 입장 번호"
+              label='?? ??'
               value={queueState.currentNumber}
-              helper="입장 가능한 마지막 번호"
+              helper='?? ?? ??? ??'
             />
             <MetricCard
               icon={<Clock3 className="h-5 w-5" />}
-              label="작성 중"
+              label='?? ?'
               value={queueState.activeReservationCount}
-              helper="현재 신청서를 작성 중인 인원"
+              helper='???? ?? ?? ??'
             />
             <MetricCard
               icon={<CheckCircle2 className="h-5 w-5" />}
-              label="제출 완료"
+              label='?? ??'
               value={completedCount}
-              helper="신청 제출을 마친 인원"
+              helper='??? ??? ??'
             />
           </div>
         </section>
@@ -759,12 +769,12 @@ export default function SmartQueueGate() {
           <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="rounded-2xl border border-snu-blue/10 bg-snu-blue/[0.03] p-5">
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-500">MY STATUS</p>
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-500">? ??</p>
                 <p className="mt-3 text-4xl font-bold tracking-tight text-snu-blue sm:text-5xl">{myNumber ?? '--'}</p>
-                <p className="mt-2 text-xs text-gray-500">내 대기번호</p>
+                <p className="mt-2 text-xs text-gray-500">? ????</p>
               </div>
               <div className="rounded-2xl border border-gray-100 bg-gray-50 p-5 text-right">
-                <p className="text-xs font-bold uppercase tracking-[0.1em] text-gray-400">WAITING</p>
+                <p className="text-xs font-bold uppercase tracking-[0.1em] text-gray-400">?? ??</p>
                 <p className="mt-2 text-2xl font-bold text-gray-900 sm:text-3xl">{waitingDisplayValue}</p>
                 <p className="mt-2 text-xs text-gray-500">{waitingDisplayHelper}</p>
               </div>
@@ -776,22 +786,22 @@ export default function SmartQueueGate() {
 
             {!myEntry || myEntry.status === 'expired' ? (
               <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
-                <p className="text-sm font-bold text-gray-900">입장 확인 정보</p>
+                <p className="text-sm font-bold text-gray-900">?? ?? ??</p>
                 <p className="mt-2 text-sm leading-relaxed text-gray-600">
-                  같은 이름과 휴대폰 번호로는 한 번에 하나의 대기열만 유지됩니다. 다른 기기에서 동시에 번호를 받는 문제를 막기 위한 절차입니다.
+                  ?? ?? ? ?? ??? ?? ??? ???? ??? ??? ???. ?? ?? ?? ??? ??? ?? ??? ?????.
                 </p>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <input
                     value={queueIdentity.studentName}
                     onChange={(event) => setQueueIdentity((prev) => ({ ...prev, studentName: event.target.value }))}
-                    placeholder="이름"
+                    placeholder='??'
                     className="min-h-[52px] rounded-2xl border border-gray-200 bg-white px-4 text-base text-gray-900 outline-none transition focus:border-snu-blue focus:ring-2 focus:ring-snu-blue/10"
                   />
                   <input
                     value={queueIdentity.phone}
                     onChange={(event) => setQueueIdentity((prev) => ({ ...prev, phone: normalizeQueuePhone(event.target.value) }))}
                     inputMode="numeric"
-                    placeholder="휴대폰 번호 (01012345678)"
+                    placeholder='???? ?? (01012345678)'
                     className="min-h-[52px] rounded-2xl border border-gray-200 bg-white px-4 text-base text-gray-900 outline-none transition focus:border-snu-blue focus:ring-2 focus:ring-snu-blue/10"
                   />
                 </div>
@@ -802,7 +812,7 @@ export default function SmartQueueGate() {
               {!myEntry || myEntry.status === 'expired' ? (
                 <button
                   onClick={() => void joinQueue()}
-                  disabled={!isOpen || joining || remainingCapacity <= 0 || queueLimitReached || !queueIdentityReady}
+                  disabled={!isOpen || joining || joinCooldownActive || remainingCapacity <= 0 || queueLimitReached || !queueIdentityReady}
                   className="flex min-h-[56px] w-full items-center justify-center rounded-2xl bg-snu-blue px-5 py-4 text-base font-bold text-white transition hover:bg-snu-dark disabled:cursor-not-allowed disabled:bg-gray-300 sm:min-h-[60px]"
                 >
                   {primaryActionLabel}
@@ -814,12 +824,12 @@ export default function SmartQueueGate() {
                   disabled={starting}
                   className="flex min-h-[56px] w-full items-center justify-center rounded-2xl bg-emerald-600 px-5 py-4 text-base font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-300 sm:min-h-[60px]"
                 >
-                  {starting ? '신청 페이지 준비 중...' : '지금 신청하기'}
+                  {starting ? '?? ??? ?? ?...' : '?? ????'}
                   {!starting && <ArrowRight className="ml-2 h-5 w-5" />}
                 </button>
               ) : (
                 <button disabled className="min-h-[56px] w-full rounded-2xl border border-gray-200 bg-gray-100 px-5 py-4 text-sm font-bold text-gray-500 sm:min-h-[60px]">
-                  대기 순서에 따라 자동으로 입장 기회가 열립니다
+                  ?? ??? ?? ???? ?? ??? ????
                 </button>
               )}
 
@@ -828,7 +838,7 @@ export default function SmartQueueGate() {
                   to={`/${schoolId}/lookup`}
                   className="flex min-h-[52px] w-full items-center justify-center rounded-2xl border border-gray-300 bg-white px-5 py-4 text-sm font-bold text-gray-700 transition hover:bg-gray-50"
                 >
-                  신청 내역 조회
+                  ?? ?? ??
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               )}
@@ -839,32 +849,32 @@ export default function SmartQueueGate() {
             </div>
 
             <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-4">
-              <p className="text-sm font-bold text-gray-900">이용 안내</p>
+              <p className="text-sm font-bold text-gray-900">?? ??</p>
               <div className="mt-3 space-y-2 text-sm leading-relaxed text-gray-600">
-                <p>접수는 {openDateLabel}에 시작됩니다. 오픈 전에는 버튼이 비활성화됩니다.</p>
-                <p>오픈 시간에 나타나는 버튼을 누르면 대기번호가 발급됩니다.</p>
-                <p>대기 접수는 상한 {queueJoinLimit.toLocaleString()}명(정규+예비의 1.5배)에서 마감됩니다.</p>
-                <p>1차에서 신청하지 못한 경우 2차 오픈 시각에 다시 대기열에 입장할 수 있습니다.</p>
+                <p>??? {openDateLabel}? ???? ?? ??? ??? ?????.</p>
+                <p>????? ???? ???? ???? ?? ??? ??? ??? ????.</p>
+                <p>??? ??? ?? {queueJoinLimit.toLocaleString()}??? ?????.</p>
+                <p>1? ?? ? ?? ??? ?? 3???, ?? ? ?? ???? ???? ???.</p>
               </div>
             </div>
 
             <section className="mt-4 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-bold text-gray-900">프로그램 안내</h2>
+              <h2 className="text-lg font-bold text-gray-900">???? ??</h2>
               <p className="mt-4 whitespace-pre-line text-sm leading-relaxed text-gray-600">{programInfo}</p>
               {schoolConfig?.programImageUrl && (
                 <button
                   onClick={() => setShowProgramImage(true)}
                   className="mt-4 flex min-h-[56px] w-full items-center justify-center rounded-2xl border border-gray-300 bg-white px-5 py-3 text-base font-bold text-gray-700 transition hover:bg-gray-50"
                 >
-                  프로그램 이미지 보기
+                  ???? ??? ??
                 </button>
               )}
             </section>
 
             {friendlyErrorMessage && (
               <p className={`mt-4 text-sm font-semibold ${
-                friendlyErrorMessage.includes('마감') ? 'text-gray-600' :
-                friendlyErrorMessage.includes('기다려') || friendlyErrorMessage.includes('새로고침') ? 'text-amber-600' :
+                friendlyErrorMessage.includes('??') ? 'text-gray-600' :
+                friendlyErrorMessage.includes('??') || friendlyErrorMessage.includes('???') ? 'text-amber-600' :
                 'text-rose-600'
               }`}>{friendlyErrorMessage}</p>
             )}
@@ -872,51 +882,51 @@ export default function SmartQueueGate() {
 
           <div className="space-y-6">
             <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-bold text-gray-900">운영 현황</h2>
+              <h2 className="text-lg font-bold text-gray-900">?? ??</h2>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <InfoTile label="현재 대기 인원" value={waitingCount} helper="번호를 받았지만 아직 작성 중이 아닌 인원" />
-                <InfoTile label="남은 확정 접수" value={remainingRegular} helper="확정으로 접수 가능한 잔여 인원" />
-                <InfoTile label="남은 예비 접수" value={remainingWaitlist} helper="예비는 확정이 아니며, 결원 발생 시 별도 연락 대상입니다" />
-                <InfoTile label="작성 중 / 기준" value={`${queueState.activeReservationCount} / ${maxActiveSessions}`} helper="동시에 작성 가능한 인원 기준" />
+                <InfoTile label='?? ? ??' value={waitingCount} helper='??? ?? ??? ???? ??' />
+                <InfoTile label='?? ?? ??' value={remainingRegular} helper='?? ???? ?? ?? ??' />
+                <InfoTile label='?? ?? ??' value={remainingWaitlist} helper='?? ???? ?? ?? ??' />
+                <InfoTile label='?? ? / ??' value={`${queueState.activeReservationCount} / ${maxActiveSessions}`} helper='??? ???? ??? ? ?? ??' />
               </div>
             </section>
 
             <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-bold text-gray-900">진행 흐름</h2>
+              <h2 className="text-lg font-bold text-gray-900">?? ??</h2>
               <div className="mt-4 space-y-3">
                 <FlowCard
                   tone="indigo"
                   step="1"
-                  title="버튼 오픈 후 대기번호 발급"
-                  body="오픈 시각에 활성화되는 버튼을 누르시면 공식 대기번호를 발급받게 됩니다."
+                  title="??? ?? ? ?? ??"
+                  body="??? ???? ??? ??? ? ????? ?? ?????."
                 />
                 <FlowCard
                   tone="amber"
                   step="2"
-                  title="순차 입장"
-                  body={`동시 작성 가능 인원 ${maxActiveSessions}명을 유지하며, 제출 또는 만료로 자리가 생기면 다음 순번이 자동으로 열립니다.`}
+                  title="??? ?? ?? ??"
+                  body={`?? ?? ?? ?? ${maxActiveSessions}??? ??? ???? ??? ? ??, ??? ?? ???? ?????.`}
                 />
                 <FlowCard
                   tone="emerald"
                   step="3"
-                  title="3분 안에 입력 완료"
-                  body="입장 후 3분 안에 제출하셔야 하며, 기한 시 세션이 만료되고 다시 대기열에 입장하셔야 합니다."
+                  title="3? ?? ??? ??"
+                  body="?? ? 3? ?? ???? ??? ???? ??? ?? ?????."
                 />
                 <FlowCard
                   tone="rose"
                   step="4"
-                  title="확정 / 예비 결과 배정"
-                  body="제출 순서가 아닌 대기번호 순서에 따라 확정 또는 예비 결과가 배정됩니다. 예비 번호는 결원 발생 시 개별 연락을 드립니다."
+                  title="?? ?? ?? ? ???"
+                  body="?? ??? ????? ??? ???? ?? ??? ?? ?? ??? ??? ?????."
                 />
               </div>
             </section>
 
             <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-bold text-gray-900">문의 안내</h2>
+              <h2 className="text-lg font-bold text-gray-900">?? ??</h2>
               <p className="mt-4 whitespace-pre-line text-sm leading-relaxed text-gray-600">
-                문의처 02-6959-3871~3{'\n'}
-                카카오 문의를 권장 합니다.{'\n'}
-                교육 프로그램 및 홈페이지 기능 관련 문의
+                ??? 02-6959-3871~3{'\n'}
+                ???? ??? ?????{'\n'}
+                ?? ???? ? ???? ?? ?? ??
               </p>
               <a
                 href="https://pf.kakao.com/_wxexmxgn/chat"
@@ -924,7 +934,7 @@ export default function SmartQueueGate() {
                 rel="noreferrer"
                 className="mt-4 flex w-full items-center justify-center rounded-2xl bg-[#FEE500] px-5 py-3 text-sm font-bold text-[#191919] transition hover:brightness-95"
               >
-                카카오채널 문의
+                ???? ??
               </a>
             </section>
 
@@ -936,7 +946,7 @@ export default function SmartQueueGate() {
             {!myEntry || myEntry.status === 'expired' ? (
               <button
                 onClick={() => void joinQueue()}
-                disabled={!isOpen || joining || remainingCapacity <= 0 || queueLimitReached || !queueIdentityReady}
+                disabled={!isOpen || joining || joinCooldownActive || remainingCapacity <= 0 || queueLimitReached || !queueIdentityReady}
                 className="flex min-h-[54px] flex-1 items-center justify-center rounded-2xl bg-snu-blue px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-gray-300"
               >
                 {primaryActionLabel}
@@ -947,14 +957,14 @@ export default function SmartQueueGate() {
                 disabled={starting}
                 className="flex min-h-[54px] flex-1 items-center justify-center rounded-2xl bg-emerald-600 px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-gray-300"
               >
-                {starting ? '신청 페이지 준비 중...' : '지금 신청하기'}
+                {starting ? '??? ?? ?...' : '?? ??'}
               </button>
             ) : (
               <button
                 disabled
                 className="flex min-h-[54px] flex-1 items-center justify-center rounded-2xl border border-gray-200 bg-gray-100 px-4 text-sm font-bold text-gray-500"
               >
-                입장 대기 중
+                ?? ?
               </button>
             )}
 
@@ -963,7 +973,7 @@ export default function SmartQueueGate() {
                 to={`/${schoolId}/lookup`}
                 className="flex min-h-[54px] items-center justify-center rounded-2xl border border-gray-300 bg-white px-4 text-sm font-bold text-gray-700"
               >
-                조회
+                ??
               </Link>
             )}
           </div>

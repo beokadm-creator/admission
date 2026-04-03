@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, onSnapshot, orderBy, query, doc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { collection, onSnapshot, orderBy, query, doc, writeBatch } from 'firebase/firestore';
 import { Users, Trash2, CheckSquare, Square } from 'lucide-react';
 import { format } from 'date-fns';
 import { db } from '../firebase/config';

@@ -1,5 +1,7 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useNavigate, useParams } from 'react-router-dom';
+import { useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { deleteField, doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
@@ -441,18 +443,7 @@ export default function SchoolSettings() {
     return unsubscribe;
   }, [schoolId, watchedRound1RegularCapacity, watchedRound1WaitlistCapacity]);
 
-  useEffect(() => {
-    if (activeTab === 'reservations' && schoolId) {
-      void loadReservations();
-    }
-  }, [activeTab, schoolId]);
-
-  const progressRate = useMemo(() => {
-    if (!slotStats?.total) return 0;
-    return Math.min(100, Math.round(((slotStats.confirmed + slotStats.reserved) / slotStats.total) * 100));
-  }, [slotStats]);
-
-  const loadReservations = async () => {
+  const loadReservations = useCallback(async () => {
     if (!schoolId) return;
 
     setLoadingReservations(true);
@@ -470,7 +461,18 @@ export default function SchoolSettings() {
     } finally {
       setLoadingReservations(false);
     }
-  };
+  }, [schoolId]);
+
+  useEffect(() => {
+    if (activeTab === 'reservations' && schoolId) {
+      void loadReservations();
+    }
+  }, [activeTab, loadReservations, schoolId]);
+
+  const progressRate = useMemo(() => {
+    if (!slotStats?.total) return 0;
+    return Math.min(100, Math.round(((slotStats.confirmed + slotStats.reserved) / slotStats.total) * 100));
+  }, [slotStats]);
 
   const handleFullReset = async () => {
     if (!window.confirm('경고: 해당 학교의 모든 신청 내역, 예약 세션, 대기열이 즉시 초기화됩니다.\n정말로 모든 데이터를 리셋하시겠습니까?')) return;

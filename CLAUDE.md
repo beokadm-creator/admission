@@ -4,39 +4,41 @@ doc-role: adapter
 status: active
 precedence: 70
 memory-type: tool-adapter
-token-estimate: 500
+token-estimate: 400
 required-for:
   - Claude-based agent sessions
 optional-for:
   - non-Claude agents
+  - design-only work
 ---
 
 @include [docs/standards/shared-rules.md#global]
 @include [docs/standards/shared-rules.md#agent-guides]
 
-# CLAUDE.md
-
 ## Essential (Post-Compact)
 
-- 이 문서는 얇은 adapter 문서다.
-- 저장소 규칙의 진실원본은 루트 `AGENTS.md`와 `docs/standards/*`다.
-- Claude 계열 에이전트도 코드 기준으로 문서를 검증해야 한다.
+- 진실원본은 `AGENTS.md`(precedence 90)와 `docs/standards/*`(95)다. 이 파일은 adapter다.
+- 충돌 시 우선순위: `docs/standards/*` > `AGENTS.md` > `CLAUDE.md` > 하위 문서.
+- 코드와 문서가 다르면 코드가 이긴다. 문서를 갱신한다.
 
 <!-- STATIC:START -->
-## Usage
+## 작업별 참조 파일
 
-- 저장소 개요와 작업 기준은 `AGENTS.md`를 먼저 읽는다.
-- 디자인 작업은 `.impeccable.md`를 추가로 참조한다.
-- 배포 작업은 `DEPLOYMENT_GUIDE.md`를 참조한다.
-- 큐 검증 작업은 `scripts/README.md`와 `.trae/documents/*queue*.md`를 참조한다.
+| 작업 | 참조 |
+|------|------|
+| 저장소 개요 · 코드 구조 | `AGENTS.md` |
+| 디자인 · 브랜드 | `.impeccable.md` |
+| 배포 · 운영 절차 | `DEPLOYMENT_GUIDE.md` |
+| 큐 검증 · 부하 테스트 | `scripts/README.md`, `.trae/documents/*queue*.md` |
 <!-- STATIC:END -->
 
 <!-- DYNAMIC:START -->
 ## Dynamic Notes
 
-- 이 문서는 Claude 전용 중복 설명을 줄이기 위해 최소 정보만 유지한다.
+_현재 별도로 추적할 임시 상태 없음._
 <!-- DYNAMIC:END -->
 
 ## Changelog
 
-- 2026-04-02: 중복 아키텍처 설명을 제거하고 AGENTS.md를 참조하는 adapter 문서로 축약.
+- 2026-04-03: 9원칙 기준으로 재작성. 불필요한 마크다운 제거, token-estimate 축소.
+- 2026-04-02: 중복 아키텍처 설명 제거, AGENTS.md 참조 adapter 문서로 축약.

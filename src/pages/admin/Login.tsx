@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
+import type { FirebaseError } from 'firebase/app';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { AlertCircle, LockKeyhole, Mail } from 'lucide-react';
 import { auth, db } from '../../firebase/config';
 
-function getLoginErrorMessage(error: any) {
-  const code = error?.code || '';
+function getLoginErrorMessage(error: unknown) {
+  const code = String((error as FirebaseError | undefined)?.code || '');
 
   if (code === 'auth/invalid-email') {
     return '이메일 형식이 올바르지 않습니다.';
@@ -50,7 +51,7 @@ export default function AdminLogin() {
       }
 
       navigate('/admin');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Admin login error:', err);
       setError(getLoginErrorMessage(err));
     } finally {

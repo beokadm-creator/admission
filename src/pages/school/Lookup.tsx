@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import type { FirebaseError } from 'firebase/app';
 import { httpsCallable } from 'firebase/functions';
 import { AlertCircle, CheckCircle2, ChevronLeft, Clock, Search, XCircle } from 'lucide-react';
 import { format } from 'date-fns';
@@ -14,6 +15,18 @@ interface RegistrationResult {
   rank?: number | null;
   submittedAt: number;
   updatedAt: number;
+}
+
+interface LookupRegistrationResponse {
+  registration?: RegistrationResult | null;
+}
+
+interface ServiceAccessResponse {
+  accessUrl?: string;
+}
+
+function getErrorDetails(error: unknown) {
+  return error as FirebaseError | undefined;
 }
 
 export default function LookupPage() {
@@ -39,8 +52,11 @@ export default function LookupPage() {
     setResult(null);
 
     try {
-      const lookupFn = httpsCallable(functions, 'lookupRegistration');
-      const response: any = await lookupFn({
+      const lookupFn = httpsCallable<
+        { schoolId: string; studentName: string; phoneLast4: string },
+        LookupRegistrationResponse
+      >(functions, 'lookupRegistration');
+      const response = await lookupFn({
         schoolId: schoolConfig.id,
         studentName: applicantName.trim(),
         phoneLast4: phoneLast4.trim()
@@ -51,12 +67,12 @@ export default function LookupPage() {
       } else {
         setError('일치하는 신청 내역이 없습니다. 입력하신 정보를 다시 확인해 주십시오.');
       }
-    } catch (lookupError: any) {
+    } catch (lookupError: unknown) {
       console.error(lookupError);
-      if (lookupError?.code === 'functions/not-found') {
+      if (getErrorDetails(lookupError)?.code === 'functions/not-found') {
         setError('일치하는 신청 내역이 없습니다. 입력하신 정보를 다시 확인해 주십시오.');
       } else {
-        setError(lookupError?.message || '조회 중 오류가 발생했습니다.');
+        setError(getErrorDetails(lookupError)?.message || '조회 중 오류가 발생했습니다.');
       }
     } finally {
       setLoading(false);
@@ -73,7 +89,10 @@ export default function LookupPage() {
 
     setCanceling(true);
     try {
-      const cancelFn = httpsCallable(functions, 'cancelRegistration');
+      const cancelFn = httpsCallable<
+        { schoolId: string; registrationId: string; studentName: string; phoneLast4: string },
+        { success?: boolean }
+      >(functions, 'cancelRegistration');
       await cancelFn({
         schoolId: schoolConfig.id,
         registrationId: result.id,
@@ -84,10 +103,10 @@ export default function LookupPage() {
       setResult((previous) => (previous ? { ...previous, status: 'canceled' } : null));
       setFeedbackTone('success');
       setFeedbackMessage('신청이 정상적으로 취소되었습니다.');
-    } catch (cancelError: any) {
+    } catch (cancelError: unknown) {
       console.error(cancelError);
       setFeedbackTone('error');
-      setFeedbackMessage(cancelError?.message || '취소 처리 중 연결이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.');
+      setFeedbackMessage(getErrorDetails(cancelError)?.message || '취소 처리 중 연결이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.');
     } finally {
       setCanceling(false);
     }
@@ -98,8 +117,11 @@ export default function LookupPage() {
 
     setServiceLoading(true);
     try {
-      const accessFn = httpsCallable(functions, 'getServiceAccessLink');
-      const response: any = await accessFn({
+      const accessFn = httpsCallable<
+        { schoolId: string; registrationId: string; studentName: string; phoneLast4: string },
+        ServiceAccessResponse
+      >(functions, 'getServiceAccessLink');
+      const response = await accessFn({
         schoolId: schoolConfig.id,
         registrationId: result.id,
         studentName: applicantName.trim(),
@@ -112,10 +134,10 @@ export default function LookupPage() {
       }
 
       window.location.href = accessUrl;
-    } catch (serviceError: any) {
+    } catch (serviceError: unknown) {
       console.error(serviceError);
       setFeedbackTone('error');
-      setFeedbackMessage(serviceError?.message || '서비스 이동 중 연결이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.');
+      setFeedbackMessage(getErrorDetails(serviceError)?.message || '서비스 이동 중 연결이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.');
     } finally {
       setServiceLoading(false);
     }
