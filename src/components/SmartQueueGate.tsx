@@ -378,10 +378,21 @@ export default function SmartQueueGate() {
   useEffect(() => {
     if (!schoolId) return;
 
-    if (!suppressAutoEntry || !myEntry || myEntry.status === 'expired') {
+    // Keep the expiry marker during the suppression window so we don't auto-enter
+    // a just-expired user back into the registration session.
+    if (recentExpiryAt && !suppressAutoEntry) {
       clearRecentQueueExpiry(schoolId);
     }
-  }, [myEntry, schoolId, suppressAutoEntry]);
+  }, [recentExpiryAt, schoolId, suppressAutoEntry]);
+
+  useEffect(() => {
+    if (!suppressAutoEntry && myEntry?.status !== 'expired') {
+      return;
+    }
+
+    autoStartedRef.current = false;
+    setAutoEntering(false);
+  }, [myEntry?.status, suppressAutoEntry]);
 
   useEffect(() => {
     if (!schoolId || !myEntry || (myEntry.status !== 'waiting' && myEntry.status !== 'eligible')) {
@@ -1065,5 +1076,4 @@ function normalizeJoinStatus(status: JoinQueueResponse['status'] | undefined): Q
 
   return 'waiting';
 }
-
 
