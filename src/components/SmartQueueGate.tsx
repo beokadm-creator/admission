@@ -155,6 +155,7 @@ export default function SmartQueueGate() {
   const [showProgramImage, setShowProgramImage] = useState(false);
   const [selectedRoundId, setSelectedRoundId] = useState<string>('round1');
   const [queueIdentity, setQueueIdentity] = useState<QueueIdentityInput>({ studentName: '', phone: '' });
+  const [identityHydrated, setIdentityHydrated] = useState(false);
 
   const autoStartedRef = useRef(false);
   const joinRequestIdRef = useRef<string | null>(null);
@@ -256,6 +257,7 @@ export default function SmartQueueGate() {
     if (storedIdentity) {
       setQueueIdentity(storedIdentity);
     }
+    setIdentityHydrated(true);
   }, [schoolId, selectedRound?.id]);
 
   useEffect(() => {
@@ -651,7 +653,7 @@ export default function SmartQueueGate() {
   }, [ensureQueueUserId, isOpen, myEntry?.roundId, navigate, schoolId, selectedRound?.id, starting]);
 
   useEffect(() => {
-    if (!canEnter || !isOpen || !schoolId || loading || autoStartedRef.current) return;
+    if (!identityHydrated || !canEnter || !isOpen || !schoolId || loading || autoStartedRef.current) return;
     if (suppressAutoEntry || suppressCompletedAutoEntry) return;
 
     autoStartedRef.current = true;
@@ -662,7 +664,7 @@ export default function SmartQueueGate() {
     }, 2000);
 
     return () => window.clearTimeout(timer);
-  }, [canEnter, isOpen, loading, schoolId, suppressAutoEntry, suppressCompletedAutoEntry, startRegistration]);
+  }, [canEnter, identityHydrated, isOpen, loading, schoolId, suppressAutoEntry, suppressCompletedAutoEntry, startRegistration]);
 
   if (loading) {
     return (

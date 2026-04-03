@@ -3,7 +3,7 @@
 import { useNavigate, useParams } from 'react-router-dom';
 import { useCallback } from 'react';
 import { useForm } from 'react-hook-form';
-import { deleteField, doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
+import { collection, deleteField, doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import {
   Activity,
@@ -409,25 +409,54 @@ export default function SchoolSettings() {
   useEffect(() => {
     if (!schoolId) return;
 
-    const queueStateRef = doc(db, 'schools', schoolId, 'queueState', 'current');
+    const queueStateCollectionRef = collection(db, 'schools', schoolId, 'queueState');
     const unsubscribe = onSnapshot(
-      queueStateRef,
+      queueStateCollectionRef,
       (snapshot) => {
-        if (snapshot.exists()) {
-          const data = snapshot.data();
+        if (!snapshot.empty) {
+          const aggregated = snapshot.docs.reduce((acc, item) => {
+            const data = item.data();
+            acc.total += Number(data.totalCapacity || 0);
+            acc.reserved += Number(data.activeReservationCount || 0);
+            acc.confirmed += Number(data.confirmedCount || 0) + Number(data.waitlistedCount || 0);
+            acc.available += Number(data.availableCapacity || 0);
+            acc.waitlistedCount += Number(data.waitlistedCount || 0);
+            acc.currentNumber = Math.max(acc.currentNumber, Number(data.currentNumber || 0));
+            acc.lastAssignedNumber = Math.max(acc.lastAssignedNumber, Number(data.lastAssignedNumber || 0));
+            acc.pendingAdmissionCount += Number(data.pendingAdmissionCount || 0);
+            acc.lastUpdated = Math.max(acc.lastUpdated, Number(data.updatedAt || 0));
+            acc.lastAdvancedAt = Math.max(acc.lastAdvancedAt, Number(data.lastAdvancedAt || 0));
+            acc.maxActiveSessions = Math.max(acc.maxActiveSessions, Number(data.maxActiveSessions || 0));
+            acc.queueEnabled = acc.queueEnabled || data.queueEnabled !== false;
+            return acc;
+          }, {
+            total: 0,
+            reserved: 0,
+            confirmed: 0,
+            available: 0,
+            lastUpdated: 0,
+            currentNumber: 0,
+            lastAssignedNumber: 0,
+            pendingAdmissionCount: 0,
+            waitlistedCount: 0,
+            queueEnabled: false,
+            lastAdvancedAt: 0,
+            maxActiveSessions: 0
+          });
+
           setSlotStats({
-            total: data.totalCapacity || watchedRound1RegularCapacity + watchedRound1WaitlistCapacity,
-            reserved: data.activeReservationCount || 0,
-            confirmed: (data.confirmedCount || 0) + (data.waitlistedCount || 0),
-            available: data.availableCapacity ?? watchedRound1RegularCapacity + watchedRound1WaitlistCapacity,
-            lastUpdated: data.updatedAt || Date.now(),
-            currentNumber: data.currentNumber || 0,
-            lastAssignedNumber: data.lastAssignedNumber || 0,
-            pendingAdmissionCount: data.pendingAdmissionCount || 0,
-            waitlistedCount: data.waitlistedCount || 0,
-            queueEnabled: data.queueEnabled !== false,
-            lastAdvancedAt: data.lastAdvancedAt || 0,
-            maxActiveSessions: data.maxActiveSessions || 60
+            total: aggregated.total || watchedRound1RegularCapacity + watchedRound1WaitlistCapacity,
+            reserved: aggregated.reserved,
+            confirmed: aggregated.confirmed,
+            available: aggregated.available || watchedRound1RegularCapacity + watchedRound1WaitlistCapacity,
+            lastUpdated: aggregated.lastUpdated || Date.now(),
+            currentNumber: aggregated.currentNumber,
+            lastAssignedNumber: aggregated.lastAssignedNumber,
+            pendingAdmissionCount: aggregated.pendingAdmissionCount,
+            waitlistedCount: aggregated.waitlistedCount,
+            queueEnabled: aggregated.queueEnabled,
+            lastAdvancedAt: aggregated.lastAdvancedAt,
+            maxActiveSessions: aggregated.maxActiveSessions || 60
           });
           return;
         }
