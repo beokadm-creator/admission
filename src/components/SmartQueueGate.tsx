@@ -361,6 +361,9 @@ export default function SmartQueueGate() {
     : myNumber
       ? Math.max(0, myNumber - queueState.currentNumber - 1)
       : 0;
+  const isNearTurnWaiting = myEntry?.status === 'waiting' && myNumber !== null && waitingAhead === 0;
+  const hasActiveQueueEntry = myEntry?.status === 'waiting' || myEntry?.status === 'eligible';
+  const showLookupButton = !!schoolConfig?.buttonSettings?.showLookupButton && !hasActiveQueueEntry;
   const estimatedWaitMinutes =
     waitingAhead > 0 ? Math.max(1, Math.ceil((waitingAhead / Math.max(maxActiveSessions, 1)) * 3)) : 0;
   const remainingRegular = Math.max(0, regularCapacity - Math.min(queueState.confirmedCount, regularCapacity));
@@ -396,6 +399,8 @@ export default function SmartQueueGate() {
       : null;
   const buttonStatusMessage = canEnter
     ? '지금 바로 신청서를 작성할 수 있습니다. 3분 안에 작성과 제출을 완료해 주세요.'
+    : isNearTurnWaiting
+      ? '앞선 대기자는 없지만 현재 작성 중인 인원이 있어, 자리가 비는 즉시 자동으로 이동합니다. 이 상태에서는 다른 페이지로 이동하지 말고 현재 화면을 유지해 주세요.'
     : suppressCompletedAutoEntry
       ? recentCompletion?.status === 'waitlisted'
         ? '이 기기에서 같은 정보로 예비 접수가 이미 완료되었습니다. 조회 페이지에서 결과를 다시 확인해 주세요.'
@@ -508,7 +513,7 @@ export default function SmartQueueGate() {
     }
 
     if (waitingAhead === 0) {
-      return '곧 입장 순서가 됩니다. 화면을 유지한 채 잠시만 기다려 주세요.';
+      return '곧 입장 순서가 됩니다. 현재 화면을 유지해 주세요.';
     }
 
     return `내 앞에 ${waitingAhead}명이 대기 중이며, 예상 대기 시간은 약 ${estimatedWaitMinutes}분입니다.`;
@@ -878,7 +883,7 @@ export default function SmartQueueGate() {
                   {primaryActionLabel}
                   {!joining && <ArrowRight className="ml-2 h-5 w-5" />}
                 </button>
-              ) : suppressCompletedAutoEntry ? (
+              ) : isNearTurnWaiting ? null : suppressCompletedAutoEntry ? (
                 <Link
                   to={`/${schoolId}/lookup`}
                   className="flex min-h-[56px] w-full items-center justify-center rounded-2xl bg-snu-blue px-5 py-4 text-base font-bold text-white transition hover:bg-snu-dark sm:min-h-[60px]"
@@ -901,7 +906,7 @@ export default function SmartQueueGate() {
                 </button>
               )}
 
-              {schoolConfig?.buttonSettings?.showLookupButton && (
+              {showLookupButton && !isNearTurnWaiting && (
                 <Link
                   to={`/${schoolId}/lookup`}
                   className="flex min-h-[52px] w-full items-center justify-center rounded-2xl border border-gray-300 bg-white px-5 py-4 text-sm font-bold text-gray-700 transition hover:bg-gray-50"
@@ -1018,7 +1023,7 @@ export default function SmartQueueGate() {
               >
                 {primaryActionLabel}
               </button>
-            ) : suppressCompletedAutoEntry ? (
+            ) : isNearTurnWaiting ? null : suppressCompletedAutoEntry ? (
               <Link
                 to={`/${schoolId}/lookup`}
                 className="flex min-h-[54px] flex-1 items-center justify-center rounded-2xl bg-snu-blue px-4 text-sm font-bold text-white"
@@ -1042,7 +1047,7 @@ export default function SmartQueueGate() {
               </button>
             )}
 
-            {schoolConfig?.buttonSettings?.showLookupButton && (
+            {showLookupButton && !isNearTurnWaiting && (
               <Link
                 to={`/${schoolId}/lookup`}
                 className="flex min-h-[54px] items-center justify-center rounded-2xl border border-gray-300 bg-white px-4 text-sm font-bold text-gray-700"
