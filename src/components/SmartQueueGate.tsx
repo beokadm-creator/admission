@@ -93,12 +93,35 @@ const RECENT_EXPIRY_SUPPRESSION_MS = 15 * 1000;
 const JOIN_RETRY_COOLDOWN_MS = 7 * 1000;
 const AUTO_ENTRY_TIMEOUT_MS = 15000;
 
+function getCallableErrorCode(error: unknown) {
+  if (typeof error === 'object' && error !== null && 'code' in error && typeof (error as { code?: unknown }).code === 'string') {
+    return (error as { code: string }).code;
+  }
+
+  return '';
+}
+
 function getCallableErrorMessage(error: unknown, fallback: string) {
   if (typeof error === 'object' && error !== null && 'message' in error && typeof (error as { message?: unknown }).message === 'string') {
     return (error as { message: string }).message;
   }
 
   return fallback;
+}
+
+function shouldApplyJoinCooldown(error: unknown) {
+  const code = getCallableErrorCode(error);
+  const message = getCallableErrorMessage(error, '');
+
+  if (code === 'functions/already-exists' || code === 'functions/invalid-argument' || code === 'functions/failed-precondition') {
+    return false;
+  }
+
+  if (message.includes('이미 진행 중인 대기열') || message.includes('이미 신청이 접수') || message.includes('이름을 입력') || message.includes('휴대폰 번호')) {
+    return false;
+  }
+
+  return true;
 }
 
 export default function SmartQueueGate() {
@@ -173,7 +196,7 @@ export default function SmartQueueGate() {
       return '현재 대기열이 마감되었습니다. 추가 모집이 있을 경우 별도로 안내해 드리겠습니다.';
     }
     if (errorMessage.includes('요청이 너무 빈번') || errorMessage.includes('초 후에 다시 시도')) {
-      return '요청이 몰려 자동으로 다시 시도하고 있습니다. 화면을 닫지 말고 잠시만 기다려 주세요.';
+      return errorMessage;
     }
 
     return '접속이 많아 처리가 지연되고 있습니다. 화면을 닫지 말고 잠시만 기다려 주세요.';
@@ -540,11 +563,15 @@ export default function SmartQueueGate() {
           activeReservationId: prev?.activeReservationId ?? null
         }));
       }
-    } catch (error: unknown) {
-      joinRequestIdRef.current = null;
-      setJoinCooldownUntil(Date.now() + JOIN_RETRY_COOLDOWN_MS);
-      setErrorMessage(getCallableErrorMessage(error, '대기열 입장에 실패했습니다. 잠시 후 다시 시도해 주세요.'));
-    } finally {
+      } catch (error: unknown) {
+        joinRequestIdRef.current = null;
+        if (shouldApplyJoinCooldown(error)) {
+          setJoinCooldownUntil(Date.now() + JOIN_RETRY_COOLDOWN_MS);
+        } else {
+          setJoinCooldownUntil(0);
+        }
+        setErrorMessage(getCallableErrorMessage(error, '대기열 입장에 실패했습니다. 잠시 후 다시 시도해 주세요.'));
+      } finally {
       joinRequestIdRef.current = null;
       setJoining(false);
     }

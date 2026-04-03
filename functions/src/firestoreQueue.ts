@@ -1539,6 +1539,11 @@ export const startRegistrationSession = standardRuntime.https.onCall(async (requ
     const promotionDocs = nextAdvance > 0
       ? await loadEntriesForPromotion(transaction, db, schoolId, round.id, queueState.currentNumber, nextAdvance)
       : [];
+    const promotedCount = promoteEligibleEntries(transaction, promotionDocs, now);
+    const maxPromotedNumber = Math.max(
+      queueState.lastAssignedNumber,
+      ...promotionDocs.map((doc) => Number((doc.data() as QueueEntryDoc).number || 0))
+    );
 
     if (isQueueEnabled(schoolData)) {
       transaction.set(entryRef, {
@@ -1580,7 +1585,18 @@ export const startRegistrationSession = standardRuntime.https.onCall(async (requ
         updatedAt: now
       } as QueueIdentityLockDoc, { merge: true });
     }
-    promoteEligibleEntries(transaction, promotionDocs, now);
+    transaction.set(stateRef, {
+      ...queueState,
+      activeReservationCount: liveMetrics.activeReservationCount + 1,
+      pendingAdmissionCount: Math.max(0, liveMetrics.pendingAdmissionCount - (isQueueEnabled(schoolData) ? 1 : 0)) + promotedCount,
+      confirmedCount: liveMetrics.confirmedCount,
+      waitlistedCount: liveMetrics.waitlistedCount,
+      availableCapacity: Math.max(0, liveMetrics.availableCapacity - 1),
+      currentNumber: queueState.currentNumber + promotedCount,
+      lastAssignedNumber: maxPromotedNumber,
+      lastAdvancedAt: promotedCount > 0 ? now : queueState.lastAdvancedAt,
+      updatedAt: now
+    }, { merge: true });
 
     const result = {
       success: true,
@@ -1905,6 +1921,11 @@ export const confirmReservation = standardRuntime.https.onCall(async (request: a
     const promotionDocs = nextAdvance > 0
       ? await loadEntriesForPromotion(transaction, db, schoolId, round.id, queueState.currentNumber, nextAdvance)
       : [];
+    const promotedCount = promoteEligibleEntries(transaction, promotionDocs, now);
+    const maxPromotedNumber = Math.max(
+      queueState.lastAssignedNumber,
+      ...promotionDocs.map((doc) => Number((doc.data() as QueueEntryDoc).number || 0))
+    );
 
     transaction.set(registrationRef, {
       ...sanitizedFormData,
@@ -1939,7 +1960,24 @@ export const confirmReservation = standardRuntime.https.onCall(async (request: a
       registrationId: registrationRef.id,
       updatedAt: now
     } as QueueIdentityLockDoc, { merge: true });
-    promoteEligibleEntries(transaction, promotionDocs, now);
+    transaction.set(stateRef, {
+      ...queueState,
+      activeReservationCount: Math.max(0, liveMetrics.activeReservationCount - 1),
+      pendingAdmissionCount: Math.max(
+        0,
+        liveMetrics.pendingAdmissionCount - (currentEntry?.roundId === round.id && currentEntry.status === 'eligible' ? 1 : 0)
+      ) + promotedCount,
+      confirmedCount: nextConfirmedCount,
+      waitlistedCount: nextWaitlistedCount,
+      availableCapacity: Math.max(
+        0,
+        queueState.totalCapacity - nextConfirmedCount - nextWaitlistedCount - Math.max(0, liveMetrics.activeReservationCount - 1)
+      ),
+      currentNumber: queueState.currentNumber + promotedCount,
+      lastAssignedNumber: maxPromotedNumber,
+      lastAdvancedAt: promotedCount > 0 ? now : queueState.lastAdvancedAt,
+      updatedAt: now
+    }, { merge: true });
 
     if (currentEntry) {
       if (currentEntry.roundId === round.id) {
