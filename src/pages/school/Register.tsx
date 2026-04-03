@@ -7,7 +7,7 @@ import { AlertTriangle, CheckCircle2, ChevronDown, Clock } from 'lucide-react';
 import { useSchool } from '../../contexts/SchoolContext';
 import { callCallableWithRetry, isTransientCallableError } from '../../lib/callable';
 import { createRequestId } from '../../lib/requestId';
-import { loadStoredQueueIdentity, markRecentQueueExpiry } from '../../lib/queue';
+import { loadStoredQueueIdentity, markRecentQueueCompletion, markRecentQueueExpiry } from '../../lib/queue';
 
 interface RegisterFormInputs {
   studentName: string;
@@ -306,6 +306,12 @@ export default function RegisterPage() {
 
       localStorage.removeItem(`registrationSessionId_${schoolId}`);
       localStorage.removeItem(`registrationExpiresAt_${schoolId}`);
+      markRecentQueueCompletion(schoolId, {
+        studentName: data.studentName,
+        phone: data.phone,
+        status: result.data.status || 'confirmed',
+        completedAt: Date.now()
+      });
       navigate(`/${schoolId}/complete`, { state: { status: result.data.status || 'confirmed' } });
     } catch (error: unknown) {
       confirmRequestIdRef.current = null;

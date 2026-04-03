@@ -20,8 +20,19 @@ export interface QueueIdentityInput {
   phone: string;
 }
 
+export interface RecentQueueCompletion {
+  studentName: string;
+  phone: string;
+  status: 'confirmed' | 'waitlisted';
+  completedAt: number;
+}
+
 export function normalizeQueuePhone(phone: string) {
   return String(phone || '').replace(/\D/g, '').slice(0, 11);
+}
+
+function normalizeQueueName(name: string) {
+  return String(name || '').trim().replace(/\s+/g, '').toLowerCase();
 }
 
 export function getQueueIdentityStorageKey(schoolId: string, roundId: string) {
@@ -51,6 +62,52 @@ export function saveStoredQueueIdentity(schoolId: string, roundId: string, ident
       phone: normalizeQueuePhone(identity.phone || '')
     })
   );
+}
+
+export function getRecentQueueCompletionStorageKey(schoolId: string) {
+  return `recentQueueCompletion_${schoolId}`;
+}
+
+export function markRecentQueueCompletion(
+  schoolId: string,
+  completion: RecentQueueCompletion
+) {
+  localStorage.setItem(
+    getRecentQueueCompletionStorageKey(schoolId),
+    JSON.stringify({
+      studentName: String(completion.studentName || '').trim(),
+      phone: normalizeQueuePhone(completion.phone || ''),
+      status: completion.status,
+      completedAt: Number(completion.completedAt || Date.now())
+    })
+  );
+}
+
+export function getRecentQueueCompletion(schoolId: string): RecentQueueCompletion | null {
+  const raw = localStorage.getItem(getRecentQueueCompletionStorageKey(schoolId));
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as RecentQueueCompletion;
+    const status = parsed.status === 'waitlisted' ? 'waitlisted' : 'confirmed';
+    return {
+      studentName: String(parsed.studentName || '').trim(),
+      phone: normalizeQueuePhone(parsed.phone || ''),
+      status,
+      completedAt: Number(parsed.completedAt || 0)
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function isSameQueueIdentity(
+  left: Pick<QueueIdentityInput, 'studentName' | 'phone'> | null | undefined,
+  right: Pick<QueueIdentityInput, 'studentName' | 'phone'> | null | undefined
+) {
+  if (!left || !right) return false;
+  return normalizeQueueName(left.studentName) === normalizeQueueName(right.studentName)
+    && normalizeQueuePhone(left.phone) === normalizeQueuePhone(right.phone);
 }
 
 export function getRecentQueueExpiryStorageKey(schoolId: string) {

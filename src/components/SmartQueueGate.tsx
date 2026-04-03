@@ -9,8 +9,10 @@ import { auth, db, functions } from '../firebase/config';
 import { useSchool } from '../contexts/SchoolContext';
 import {
   clearRecentQueueExpiry,
+  getRecentQueueCompletion,
   getRecentQueueExpiry,
   getQueueUserId,
+  isSameQueueIdentity,
   loadStoredQueueIdentity,
   markRecentQueueExpiry,
   normalizeQueuePhone,
@@ -181,9 +183,21 @@ export default function SmartQueueGate() {
   const joinCooldownActive = joinCooldownSeconds > 0;
   const recentExpiryAt = schoolId ? getRecentQueueExpiry(schoolId) : 0;
   const suppressAutoEntry = !!recentExpiryAt && now - recentExpiryAt < RECENT_EXPIRY_SUPPRESSION_MS;
+  const recentCompletion = schoolId ? getRecentQueueCompletion(schoolId) : null;
+  const recentCompletionMatchesIdentity = isSameQueueIdentity(recentCompletion, {
+    studentName: queueIdentity.studentName,
+    phone: normalizedQueuePhone
+  });
+  const suppressCompletedAutoEntry = recentCompletionMatchesIdentity && !!recentCompletion;
   const friendlyErrorMessage = useMemo(() => {
     if (!errorMessage) return null;
-    if (errorMessage.includes('이미 진행 중인 대기열') || errorMessage.includes('이미 요청이 접수')) {
+    if (
+      errorMessage.includes('이미 진행 중인 대기열')
+      || errorMessage.includes('이미 요청이 접수')
+      || errorMessage.includes('이미 신청이 접수')
+      || errorMessage.includes('이미 같은 휴대폰 번호')
+      || errorMessage.includes('조회 페이지에서 결과를 확인')
+    ) {
       return errorMessage;
     }
     if (errorMessage.includes('schoolId') || errorMessage.includes('대기번호') || errorMessage.includes('이름')) {
@@ -341,7 +355,7 @@ export default function SmartQueueGate() {
   }, [schoolId, userId, selectedRound?.id]);
 
   const myNumber = myEntry?.number ?? null;
-  const canEnter = myEntry?.status === 'eligible' && myNumber !== null;
+  const canEnter = myEntry?.status === 'eligible' && myNumber !== null && !suppressCompletedAutoEntry;
   const waitingAhead = myEntry?.status === 'eligible'
     ? 0
     : myNumber
@@ -382,6 +396,10 @@ export default function SmartQueueGate() {
       : null;
   const buttonStatusMessage = canEnter
     ? '지금 바로 신청서를 작성할 수 있습니다. 3분 안에 작성과 제출을 완료해 주세요.'
+    : suppressCompletedAutoEntry
+      ? recentCompletion?.status === 'waitlisted'
+        ? '이 기기에서 같은 정보로 예비 접수가 이미 완료되었습니다. 조회 페이지에서 결과를 다시 확인해 주세요.'
+        : '이 기기에서 같은 정보로 신청이 이미 완료되었습니다. 다시 작성할 필요 없이 조회 페이지에서 결과를 확인해 주세요.'
     : myEntry?.status === 'expired'
       ? '작성 가능 시간이 만료되었습니다. 다시 신청하려면 대기열에 다시 입장해 번호를 받아야 합니다.'
       : joinCooldownActive
@@ -629,7 +647,7 @@ export default function SmartQueueGate() {
 
   useEffect(() => {
     if (!canEnter || !isOpen || !schoolId || loading || autoStartedRef.current) return;
-    if (suppressAutoEntry) return;
+    if (suppressAutoEntry || suppressCompletedAutoEntry) return;
 
     autoStartedRef.current = true;
     setAutoEntering(true);
@@ -639,7 +657,7 @@ export default function SmartQueueGate() {
     }, 2000);
 
     return () => window.clearTimeout(timer);
-  }, [canEnter, isOpen, loading, schoolId, suppressAutoEntry, startRegistration]);
+  }, [canEnter, isOpen, loading, schoolId, suppressAutoEntry, suppressCompletedAutoEntry, startRegistration]);
 
   if (loading) {
     return (
@@ -860,6 +878,14 @@ export default function SmartQueueGate() {
                   {primaryActionLabel}
                   {!joining && <ArrowRight className="ml-2 h-5 w-5" />}
                 </button>
+              ) : suppressCompletedAutoEntry ? (
+                <Link
+                  to={`/${schoolId}/lookup`}
+                  className="flex min-h-[56px] w-full items-center justify-center rounded-2xl bg-snu-blue px-5 py-4 text-base font-bold text-white transition hover:bg-snu-dark sm:min-h-[60px]"
+                >
+                  신청 내역 조회하기
+                  <ArrowRight className="ml-2 h-5 w-5" />
+                </Link>
               ) : canEnter ? (
                 <button
                   onClick={() => void startRegistration()}
@@ -992,6 +1018,13 @@ export default function SmartQueueGate() {
               >
                 {primaryActionLabel}
               </button>
+            ) : suppressCompletedAutoEntry ? (
+              <Link
+                to={`/${schoolId}/lookup`}
+                className="flex min-h-[54px] flex-1 items-center justify-center rounded-2xl bg-snu-blue px-4 text-sm font-bold text-white"
+              >
+                신청 조회
+              </Link>
             ) : canEnter ? (
               <button
                 onClick={() => void startRegistration()}
