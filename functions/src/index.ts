@@ -226,7 +226,7 @@ async function sendAlimTalk(to: string, templateCode: string, templateParams: an
     return;
   }
 
-  const url = `https://api-alimtalk.cloud.toast.com/alimtalk/v1.5/appkeys/${appKey}/messages`;
+  const url = `https://kakaotalk-bizmessage.api.nhncloudservice.com/alimtalk/v2.0/appkeys/${appKey}/messages`;
 
   try {
     const response = await axios.post(
@@ -250,7 +250,12 @@ async function sendAlimTalk(to: string, templateCode: string, templateParams: an
     );
 
     if (!response.data?.header?.isSuccessful) {
-      functions.logger.error('[AlimTalk] Send failed', response.data);
+      functions.logger.error('[AlimTalk] Send failed', {
+        response: response.data,
+        templateCode,
+        recipientNo: to.replace(/-/g, ''),
+        senderKey
+      });
     }
   } catch (error) {
     functions.logger.error('[AlimTalk] Error sending message', error);
@@ -595,4 +600,3 @@ export const onRegistrationUpdateQueued = firestoreTriggers
       }
     }
   });
-
