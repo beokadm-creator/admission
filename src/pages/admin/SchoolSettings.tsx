@@ -272,6 +272,7 @@ export default function SchoolSettings() {
         nhnSenderKey: '',
         successTemplate: '',
         waitlistTemplate: '',
+        promoteTemplate: '',
       },
       buttonSettings: {
         showLookupButton: true
@@ -661,6 +662,11 @@ export default function SchoolSettings() {
           waitlistTemplate,
           promoteTemplate
         },
+        emergencyNotice: {
+          enabled: emergencyNoticeEnabled,
+          message: emergencyNoticeText
+        },
+        forceActiveRound: forceRound,
         usePopup: !!data.usePopup,
         isActive: data.isActive !== false,
         buttonSettings: {
