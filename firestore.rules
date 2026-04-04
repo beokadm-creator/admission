@@ -98,6 +98,11 @@ service cloud.firestore {
       match /privateSettings/{docId} {
         allow read, write: if isAdminOfSchool(schoolId);
       }
+
+      match /adminAuditLogs/{logId} {
+        allow read: if isMaster();
+        allow write: if false;
+      }
     }
 
     match /counters/{schoolId} {
