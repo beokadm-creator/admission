@@ -564,7 +564,7 @@ export default function SmartQueueGate() {
     }
 
     if (remainingCapacity <= 0) {
-      return '확정 접수는 마감되었습니다. 남은 대기 순번은 예비로 배정됩니다.';
+      return '죄송합니다. 앞 대기 인원 접수가 모두 마감되어 신청서를 작성하실 수 없습니다.';
     }
 
     if (queueState.availableCapacity <= 0) {
@@ -928,6 +928,14 @@ export default function SmartQueueGate() {
             <div className="mt-4 rounded-2xl border border-gray-100 bg-white p-4 text-sm leading-relaxed text-gray-600">
               {myStatusMessage}
             </div>
+            {myNumber !== null && remainingCapacity <= 0 && !canEnter && (
+              <Link
+                to={`/${schoolId}`}
+                className="mt-3 flex min-h-[44px] w-full items-center justify-center rounded-xl border border-gray-300 bg-white px-4 text-sm font-bold text-gray-700 transition hover:bg-gray-50"
+              >
+                메인으로 이동 <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+            )}
 
             {!myEntry || myEntry.status === 'expired' ? (
               <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
@@ -1031,10 +1039,10 @@ export default function SmartQueueGate() {
                 <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
                   <p className="text-sm font-semibold text-gray-600">{friendlyErrorMessage}</p>
                   <Link
-                    to={`/${schoolId}/lookup`}
+                    to={`/${schoolId}`}
                     className="mt-3 flex min-h-[44px] w-full items-center justify-center rounded-xl border border-gray-300 bg-white px-4 text-sm font-bold text-gray-700 transition hover:bg-gray-50"
                   >
-                    신청 내역 조회하기 <ArrowRight className="ml-2 h-4 w-4" />
+                    메인으로 이동 <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
                 </div>
               ) : (

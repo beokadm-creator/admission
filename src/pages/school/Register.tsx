@@ -92,6 +92,7 @@ export default function RegisterPage() {
   const [expiredToast, setExpiredToast] = useState(false);
   const [softNotice, setSoftNotice] = useState<string | null>(null);
   const [softNoticeTone, setSoftNoticeTone] = useState<'info' | 'error'>('info');
+  const [softNoticeMainNav, setSoftNoticeMainNav] = useState(false);
 
   const navigatingRef = useRef(false);
   const expireRequestIdRef = useRef<string | null>(null);
@@ -330,13 +331,13 @@ export default function RegisterPage() {
       } else if (getFirebaseError(error)?.code === 'functions/already-exists') {
         setSoftNoticeTone('error');
         setSoftNotice('이미 다른 계정으로 접수가 진행 중입니다. 안내를 받은 계정으로 계속 진행해 주세요.');
+      } else if (getFirebaseError(error)?.message === 'FULL_CAPACITY') {
+        setSoftNoticeTone('error');
+        setSoftNotice('죄송합니다. 모집 정원과 예비 정원이 모두 마감되어 신청서를 제출하실 수 없습니다.');
+        setSoftNoticeMainNav(true);
       } else {
         setSoftNoticeTone('error');
-        setSoftNotice(
-          getFirebaseError(error)?.message === 'FULL_CAPACITY'
-            ? '모집 정원과 예비 정원이 모두 마감되었습니다.'
-            : getFirebaseError(error)?.message || '신청을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.'
-        );
+        setSoftNotice(getFirebaseError(error)?.message || '신청을 완료하지 못했습니다.');
       }
     } finally {
       setSubmitting(false);
@@ -394,6 +395,14 @@ export default function RegisterPage() {
           </div>
           <h3 className="text-xl font-bold text-gray-900">알림</h3>
           <p className="mt-3 text-sm leading-relaxed text-gray-600">{softNotice}</p>
+          {softNoticeMainNav && (
+            <button
+              onClick={() => navigate(`/${schoolId}`)}
+              className="mt-5 flex min-h-[44px] w-full items-center justify-center rounded-xl border border-gray-300 bg-white px-4 text-sm font-bold text-gray-700 transition hover:bg-gray-50"
+            >
+              메인으로 이동
+            </button>
+          )}
         </div>
       </div>
     );
