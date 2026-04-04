@@ -17,6 +17,7 @@ import RegisterPage from './pages/school/Register';
 import CompletePage from './pages/school/Complete';
 import LookupPage from './pages/school/Lookup';
 import SmartQueueGate from './components/SmartQueueGate';
+import Home from './pages/Home';
 
 function App() {
   return (
@@ -48,8 +49,8 @@ function App() {
             <Route path="lookup" element={<LookupPage />} />
           </Route>
 
-          {/* Fallback Route */}
-          <Route path="/" element={<div className="p-8">학교 ID를 입력해주세요. (예: /korea-univ)</div>} />
+          {/* Root Route */}
+          <Route path="/" element={<Home />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

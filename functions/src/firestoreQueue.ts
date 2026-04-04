@@ -3,6 +3,12 @@
 import * as functionsV1 from 'firebase-functions/v1';
 import * as admin from 'firebase-admin';
 import { createHash, randomBytes } from 'crypto';
+import {
+  checkRateLimit as sharedCheckRateLimit,
+  getRateLimitIdentifier as sharedGetRateLimitIdentifier,
+  normalizeAdmissionRounds as sharedNormalizeAdmissionRounds,
+  normalizeCallableRequest as sharedNormalizeCallableRequest
+} from './shared/queueShared';
 
 // Runtime configurations for hot-path functions to handle stampede load
 const hotPathRuntime = functionsV1.runWith({
@@ -120,6 +126,8 @@ interface QueueIdentityLockDoc {
   updatedAt: number;
 }
 
+type JoinQueueErrorReason = 'QUEUE_CLOSED' | 'CAPACITY_FULL';
+
 interface NormalizedCallableRequest {
   data: any;
   auth: any;
@@ -134,35 +142,7 @@ const ACTIVE_QUEUE_ENTRY_STATUSES: QueueEntryStatus[] = ['waiting', 'eligible'];
 const ACTIVE_RESERVATION_STATUSES: ReservationStatus[] = ['reserved', 'processing'];
 
 function normalizeCallableRequest(requestOrData: any, legacyContext?: any): NormalizedCallableRequest {
-  if (
-    requestOrData &&
-    typeof requestOrData === 'object' &&
-    ('data' in requestOrData || 'auth' in requestOrData || 'rawRequest' in requestOrData)
-  ) {
-    return {
-      data: requestOrData.data ?? {},
-      auth: requestOrData.auth ?? null,
-      rawRequest: requestOrData.rawRequest
-    };
-  }
-
-  if (
-    legacyContext &&
-    typeof legacyContext === 'object' &&
-    ('auth' in legacyContext || 'rawRequest' in legacyContext)
-  ) {
-    return {
-      data: requestOrData?.data ?? requestOrData ?? {},
-      auth: legacyContext.auth ?? null,
-      rawRequest: legacyContext.rawRequest
-    };
-  }
-
-  return {
-    data: requestOrData ?? {},
-    auth: null,
-    rawRequest: undefined
-  };
+  return sharedNormalizeCallableRequest(requestOrData, legacyContext);
 }
 
 // Best-effort rate limiting without Firestore transactions.
@@ -176,85 +156,15 @@ async function checkRateLimit(
   maxRequests: number,
   windowMs: number
 ): Promise<{ allowed: boolean; retryAfter?: number }> {
-  const now = Date.now();
-  const rateLimitRef = db.collection('rateLimits').doc(identifier);
-
-  const snapshot = await rateLimitRef.get();
-
-  if (snapshot.exists) {
-    const data = snapshot.data()!;
-    const elapsed = now - (data.firstRequest || 0);
-
-    if (elapsed <= windowMs && (data.count || 0) >= maxRequests) {
-      return {
-        allowed: false,
-        retryAfter: Math.max(1, Math.ceil((windowMs - elapsed) / 1000))
-      };
-    }
-
-    if (elapsed > windowMs) {
-      // Window expired — reset counter (no transaction needed; stale resets are harmless)
-      await rateLimitRef.set({ count: 1, firstRequest: now, lastRequest: now });
-      return { allowed: true };
-    }
-  }
-
-  // Atomic increment without transaction — avoids contention on shared IP documents
-  await rateLimitRef.set(
-    {
-      count: admin.firestore.FieldValue.increment(1),
-      lastRequest: now,
-      ...(snapshot.exists ? {} : { firstRequest: now })
-    },
-    { merge: true }
-  );
-
-  return { allowed: true };
+  return sharedCheckRateLimit(db, identifier, maxRequests, windowMs);
 }
 
 function getRateLimitIdentifier(rawRequest: any, fallback: string) {
-  const ipAddress =
-    rawRequest?.ip ||
-    rawRequest?.headers?.['x-forwarded-for'] ||
-    rawRequest?.headers?.['fastly-client-ip'];
-
-  if (typeof ipAddress === 'string' && ipAddress.trim()) {
-    return `ip_${ipAddress.split(',')[0].trim()}`;
-  }
-
-  return fallback;
+  return sharedGetRateLimitIdentifier(rawRequest, fallback);
 }
 
 function normalizeAdmissionRounds(schoolData: admin.firestore.DocumentData): AdmissionRoundConfig[] {
-  const rounds = Array.isArray(schoolData.admissionRounds) && schoolData.admissionRounds.length > 0
-    ? schoolData.admissionRounds
-    : [
-        {
-          id: 'round1',
-          label: '1차',
-          openDateTime: schoolData.openDateTime || '',
-          maxCapacity: Number(schoolData.maxCapacity || 0),
-          waitlistCapacity: Number(schoolData.waitlistCapacity || 0),
-          enabled: true
-        }
-      ];
-
-  const fallbackRounds: AdmissionRoundConfig[] = [
-    { id: 'round1', label: '1차', openDateTime: '', maxCapacity: 0, waitlistCapacity: 0, enabled: true },
-    { id: 'round2', label: '2차', openDateTime: '', maxCapacity: 0, waitlistCapacity: 0, enabled: false }
-  ];
-
-  return fallbackRounds.map((fallback, index) => {
-    const source = rounds[index] || {};
-    return {
-      id: String(source.id || fallback.id),
-      label: String(source.label || fallback.label),
-      openDateTime: String(source.openDateTime || fallback.openDateTime || ''),
-      maxCapacity: Math.max(0, Number(source.maxCapacity ?? fallback.maxCapacity)),
-      waitlistCapacity: Math.max(0, Number(source.waitlistCapacity ?? fallback.waitlistCapacity)),
-      enabled: index === 0 ? true : source.enabled !== false
-    };
-  }).filter((round) => round.enabled);
+  return sharedNormalizeAdmissionRounds(schoolData);
 }
 
 function getResolvedAdmissionRound(schoolData: admin.firestore.DocumentData, now = Date.now()) {
@@ -339,6 +249,34 @@ function requestLockRef(db: admin.firestore.Firestore, schoolId: string, request
 
 function queueIdentityLockRef(db: admin.firestore.Firestore, schoolId: string, roundId: string, identityHash: string) {
   return db.doc(`schools/${schoolId}/queueIdentityLocks/${roundId}_${identityHash}`);
+}
+
+function makeJoinQueueError(
+  message: string,
+  reason: JoinQueueErrorReason,
+  metadata?: Record<string, unknown>
+) {
+  return new functions.https.HttpsError('resource-exhausted', message, {
+    reason,
+    isFull: true,
+    message,
+    ...(metadata || {})
+  });
+}
+
+async function setQueueStateBestEffort(
+  stateRef: admin.firestore.DocumentReference,
+  nextState: Partial<QueueStateDoc>,
+  context: string
+) {
+  try {
+    await stateRef.set(nextState, { merge: true });
+  } catch (error) {
+    functions.logger.error(`[${context}] queueState sync failed`, {
+      path: stateRef.path,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
 }
 
 function sanitizeRequestId(requestId?: string) {
@@ -454,7 +392,7 @@ async function loadQueueLiveMetrics(
   schoolData: admin.firestore.DocumentData
 ): Promise<QueueLiveMetrics> {
   const { totalCapacity } = getRoundCapacity(round);
-  const [activeReservationsSnapshot, eligibleEntriesSnapshot, confirmedSnapshot, waitlistedSnapshot] = await Promise.all([
+  const [activeReservationsSnapshot, eligibleEntriesSnapshot, registrationsSnapshot] = await Promise.all([
     transaction.get(
       reservationsRef(db, schoolId)
         .where('roundId', '==', round.id)
@@ -468,19 +406,24 @@ async function loadQueueLiveMetrics(
     transaction.get(
       registrationsRef(db, schoolId)
         .where('admissionRoundId', '==', round.id)
-        .where('status', '==', 'confirmed')
-    ),
-    transaction.get(
-      registrationsRef(db, schoolId)
-        .where('admissionRoundId', '==', round.id)
-        .where('status', '==', 'waitlisted')
+        .where('status', 'in', ['confirmed', 'waitlisted'])
     )
   ]);
 
   const activeReservationCount = activeReservationsSnapshot.size;
   const pendingAdmissionCount = eligibleEntriesSnapshot.size;
-  const confirmedCount = confirmedSnapshot.size;
-  const waitlistedCount = waitlistedSnapshot.size;
+  let confirmedCount = 0;
+  let waitlistedCount = 0;
+  registrationsSnapshot.forEach((doc) => {
+    const status = doc.get('status');
+    if (status === 'confirmed') {
+      confirmedCount += 1;
+      return;
+    }
+    if (status === 'waitlisted') {
+      waitlistedCount += 1;
+    }
+  });
 
   return {
     activeReservationCount,
@@ -659,9 +602,10 @@ async function issueQueueNumberFromRtdb(
 
     if (limitReached) {
       await assignmentRef.remove();
-      throw new functions.https.HttpsError(
-        'resource-exhausted',
-        '대기열이 운영 상한에 도달하여 마감되었습니다.'
+      throw makeJoinQueueError(
+        '대기열이 운영 상한에 도달하여 마감되었습니다.',
+        'QUEUE_CLOSED',
+        { roundId, queueJoinLimit }
       );
     }
 
@@ -853,12 +797,16 @@ async function recalculateQueueState(db: admin.firestore.Firestore, schoolId: st
   const round = getResolvedAdmissionRound(schoolData);
   const stateRef = queueStateRef(db, schoolId, round.id);
   const existingState = (await stateRef.get()).data() as Partial<QueueStateDoc> | undefined;
-  const [activeReservationsSnapshot, queueEntriesSnapshot] = await Promise.all([
+  const [activeReservationsSnapshot, queueEntriesSnapshot, registrationsSnapshot] = await Promise.all([
     reservationsRef(db, schoolId)
       .where('roundId', '==', round.id)
       .where('status', 'in', ['reserved', 'processing'])
       .get(),
-    queueEntriesRef(db, schoolId).where('roundId', '==', round.id).get()
+    queueEntriesRef(db, schoolId).where('roundId', '==', round.id).get(),
+    registrationsRef(db, schoolId)
+      .where('admissionRoundId', '==', round.id)
+      .where('status', 'in', ['confirmed', 'waitlisted'])
+      .get()
   ]);
 
   const activeReservationCount = activeReservationsSnapshot.size;
@@ -880,18 +828,31 @@ async function recalculateQueueState(db: admin.firestore.Firestore, schoolId: st
   });
   currentNumber = Math.min(currentNumber, lastAssignedNumber);
 
+  let confirmedCount = 0;
+  let waitlistedCount = 0;
+  registrationsSnapshot.forEach((doc) => {
+    const status = doc.get('status');
+    if (status === 'confirmed') {
+      confirmedCount += 1;
+      return;
+    }
+    if (status === 'waitlisted') {
+      waitlistedCount += 1;
+    }
+  });
+
   const nextState = buildQueueStateDoc(schoolData, round, {
     ...(existingState || {}),
     currentNumber,
     lastAssignedNumber,
     activeReservationCount,
     pendingAdmissionCount,
-    confirmedCount: Number(existingState?.confirmedCount || 0),
-    waitlistedCount: Number(existingState?.waitlistedCount || 0),
+    confirmedCount,
+    waitlistedCount,
     updatedAt: Date.now()
   });
 
-  await stateRef.set(nextState, { merge: true });
+  await setQueueStateBestEffort(stateRef, nextState, 'recalculateQueueState');
   return nextState;
 }
 
@@ -1284,7 +1245,11 @@ export const joinQueue = hotPathRuntime.https.onCall(async (request: any, legacy
   }
 
   if (totalCapacity <= 0 || queueState.availableCapacity <= 0) {
-    throw new functions.https.HttpsError('resource-exhausted', '현재 신청 가능한 정원이 없습니다.');
+    throw makeJoinQueueError(
+      '현재 신청 가능한 정원이 없습니다.',
+      'CAPACITY_FULL',
+      { roundId: round.id, queueJoinLimit }
+    );
   }
 
   const issued = await issueQueueNumber(schoolId, round.id, auth.uid, now, queueJoinLimit);
@@ -1431,7 +1396,7 @@ export const startRegistrationSession = standardRuntime.https.onCall(async (requ
   const reservationId = `reservation_${Date.now()}_${randomBytes(8).toString('hex')}`;
   const reservationRef = reservationCollectionRef.doc(reservationId);
 
-  return db.runTransaction(async (transaction) => {
+  const transactionResult = await db.runTransaction(async (transaction) => {
     const [schoolSnapshot, entrySnapshot] = await Promise.all([
       transaction.get(schoolRef),
       transaction.get(entryRef)
@@ -1444,12 +1409,12 @@ export const startRegistrationSession = standardRuntime.https.onCall(async (requ
     let round = roundId ? (getRoundById(schoolData, roundId) || getResolvedAdmissionRound(schoolData)) : getResolvedAdmissionRound(schoolData);
     let stateRef = queueStateRef(db, schoolId, round.id);
     let lockRef = requestLockRef(db, schoolId, `${round.id}_${requestId}`);
-    let [stateSnapshot, lockSnapshot] = await Promise.all([
-      transaction.get(stateRef),
-      transaction.get(lockRef)
-    ]);
+    let existingState = (await stateRef.get()).data() as QueueStateDoc | undefined;
+    let lockSnapshot = await transaction.get(lockRef);
     if (lockSnapshot.exists) {
-      return (lockSnapshot.data() as RequestLockDoc).result;
+      return {
+        response: (lockSnapshot.data() as RequestLockDoc).result
+      };
     }
     assertSchoolOpen(schoolData, round);
 
@@ -1468,10 +1433,10 @@ export const startRegistrationSession = standardRuntime.https.onCall(async (requ
         queueNumber: existingReservation.queueNumber ?? null
       };
       transaction.set(lockRef, makeRequestLock('startRegistration', auth.uid, result));
-      return result;
+      return { response: result };
     }
 
-    let queueState = buildQueueStateDoc(schoolData, round, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
+    let queueState = buildQueueStateDoc(schoolData, round, existingState ?? null);
 
     const now = Date.now();
     let queueNumber: number | null = null;
@@ -1492,14 +1457,14 @@ export const startRegistrationSession = standardRuntime.https.onCall(async (requ
         round = getRoundById(schoolData, queueEntry.roundId) || round;
         stateRef = queueStateRef(db, schoolId, round.id);
         lockRef = requestLockRef(db, schoolId, `${round.id}_${requestId}`);
-        [stateSnapshot, lockSnapshot] = await Promise.all([
-          transaction.get(stateRef),
-          transaction.get(lockRef)
-        ]);
+        existingState = (await stateRef.get()).data() as QueueStateDoc | undefined;
+        lockSnapshot = await transaction.get(lockRef);
         if (lockSnapshot.exists) {
-          return (lockSnapshot.data() as RequestLockDoc).result;
+          return {
+            response: (lockSnapshot.data() as RequestLockDoc).result
+          };
         }
-        queueState = buildQueueStateDoc(schoolData, round, stateSnapshot.exists ? stateSnapshot.data() as QueueStateDoc : null);
+        queueState = buildQueueStateDoc(schoolData, round, existingState ?? null);
       }
       queueNumber = queueEntry.number;
       if (queueEntry.status !== 'eligible' || queueEntry.number == null) {
@@ -1512,9 +1477,9 @@ export const startRegistrationSession = standardRuntime.https.onCall(async (requ
     queueState = buildQueueStateDoc(
       schoolData,
       round,
-      stateSnapshot.exists
+      existingState
         ? {
-            ...(stateSnapshot.data() as QueueStateDoc),
+            ...existingState,
             ...liveMetrics
           }
         : liveMetrics
@@ -1585,7 +1550,7 @@ export const startRegistrationSession = standardRuntime.https.onCall(async (requ
         updatedAt: now
       } as QueueIdentityLockDoc, { merge: true });
     }
-    transaction.set(stateRef, {
+    const nextQueueState: QueueStateDoc = {
       ...queueState,
       activeReservationCount: liveMetrics.activeReservationCount + 1,
       pendingAdmissionCount: Math.max(0, liveMetrics.pendingAdmissionCount - (isQueueEnabled(schoolData) ? 1 : 0)) + promotedCount,
@@ -1596,7 +1561,7 @@ export const startRegistrationSession = standardRuntime.https.onCall(async (requ
       lastAssignedNumber: maxPromotedNumber,
       lastAdvancedAt: promotedCount > 0 ? now : queueState.lastAdvancedAt,
       updatedAt: now
-    }, { merge: true });
+    };
 
     const result = {
       success: true,
@@ -1607,8 +1572,22 @@ export const startRegistrationSession = standardRuntime.https.onCall(async (requ
       roundLabel: round.label
     };
     transaction.set(lockRef, makeRequestLock('startRegistration', auth.uid, result));
-    return result;
+    return {
+      response: result,
+      stateRefPath: stateRef.path,
+      nextQueueState
+    };
   });
+
+  if (transactionResult.stateRefPath && transactionResult.nextQueueState) {
+    await setQueueStateBestEffort(
+      db.doc(transactionResult.stateRefPath),
+      transactionResult.nextQueueState,
+      'startRegistrationSession'
+    );
+  }
+
+  return transactionResult.response;
 });
 
 export const getReservationSession = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
@@ -1804,7 +1783,7 @@ export const confirmReservation = standardRuntime.https.onCall(async (request: a
   const queueEntryRef = queueEntriesRef(db, schoolId).doc(auth.uid);
   const registrationRef = db.doc(`schools/${schoolId}/registrations/${sessionId}`);
 
-  const result = await db.runTransaction(async (transaction) => {
+  const transactionResult = await db.runTransaction(async (transaction) => {
     const [schoolSnapshot, reservationSnapshot, queueEntrySnapshot, registrationSnapshot] = await Promise.all([
       transaction.get(schoolRef),
       transaction.get(reservationRef),
@@ -1820,12 +1799,14 @@ export const confirmReservation = standardRuntime.https.onCall(async (request: a
     const round = getRoundById(schoolData, reservation.roundId) || getResolvedAdmissionRound(schoolData);
     const stateRef = queueStateRef(db, schoolId, round.id);
     const lockRef = requestLockRef(db, schoolId, `${round.id}_${requestId}`);
-    const [stateSnapshot, lockSnapshot] = await Promise.all([
-      transaction.get(stateRef),
+    const [existingState, lockSnapshot] = await Promise.all([
+      stateRef.get(),
       transaction.get(lockRef)
     ]);
     if (lockSnapshot.exists) {
-      return (lockSnapshot.data() as RequestLockDoc).result;
+      return {
+        response: (lockSnapshot.data() as RequestLockDoc).result
+      };
     }
     if (reservation.userId !== auth.uid) {
       throw new functions.https.HttpsError('permission-denied', '해당 세션에 대한 접근 권한이 없습니다.');
@@ -1840,7 +1821,7 @@ export const confirmReservation = standardRuntime.https.onCall(async (request: a
         rank: existingRegistration?.rank ?? null
       };
       transaction.set(lockRef, makeRequestLock('confirmReservation', auth.uid, result));
-      return result;
+      return { response: result };
     }
 
     const now = Date.now();
@@ -1876,9 +1857,9 @@ export const confirmReservation = standardRuntime.https.onCall(async (request: a
     const queueState = buildQueueStateDoc(
       schoolData,
       round,
-      stateSnapshot.exists
+      existingState.exists
         ? {
-            ...(stateSnapshot.data() as QueueStateDoc),
+            ...(existingState.data() as QueueStateDoc),
             ...liveMetrics
           }
         : liveMetrics
@@ -1960,7 +1941,7 @@ export const confirmReservation = standardRuntime.https.onCall(async (request: a
       registrationId: registrationRef.id,
       updatedAt: now
     } as QueueIdentityLockDoc, { merge: true });
-    transaction.set(stateRef, {
+    const nextQueueState: QueueStateDoc = {
       ...queueState,
       activeReservationCount: Math.max(0, liveMetrics.activeReservationCount - 1),
       pendingAdmissionCount: Math.max(
@@ -1977,7 +1958,7 @@ export const confirmReservation = standardRuntime.https.onCall(async (request: a
       lastAssignedNumber: maxPromotedNumber,
       lastAdvancedAt: promotedCount > 0 ? now : queueState.lastAdvancedAt,
       updatedAt: now
-    }, { merge: true });
+    };
 
     if (currentEntry) {
       if (currentEntry.roundId === round.id) {
@@ -1998,15 +1979,27 @@ export const confirmReservation = standardRuntime.https.onCall(async (request: a
       rank
     };
     transaction.set(lockRef, makeRequestLock('confirmReservation', auth.uid, result));
-    return result;
+    return {
+      response: result,
+      stateRefPath: stateRef.path,
+      nextQueueState
+    };
   });
+
+  if (transactionResult.stateRefPath && transactionResult.nextQueueState) {
+    await setQueueStateBestEffort(
+      db.doc(transactionResult.stateRefPath),
+      transactionResult.nextQueueState,
+      'confirmReservation'
+    );
+  }
 
   const reservationSnapshot = await reservationRef.get();
   const reservation = reservationSnapshot.exists ? (reservationSnapshot.data() as ReservationDoc) : null;
   if (reservation?.roundId) {
     await clearQueueNumber(schoolId, reservation.roundId, auth.uid).catch(() => undefined);
   }
-  return result;
+  return transactionResult.response;
 });
 
 export const cleanupExpiredReservations = functionsV1.pubsub

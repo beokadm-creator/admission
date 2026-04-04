@@ -54,6 +54,19 @@ interface StartRegistrationResponse {
   expiresAt?: number;
 }
 
+type JoinClosureState = {
+  reason?: string;
+  message?: string;
+};
+
+type CallableErrorDetails = {
+  reason?: string;
+  isFull?: boolean;
+  message?: string;
+  roundId?: string;
+  queueJoinLimit?: number;
+};
+
 function formatDateLabel(openTimeMs: number) {
   if (!openTimeMs) return '추후 공지';
 
@@ -103,7 +116,33 @@ function getCallableErrorCode(error: unknown) {
   return '';
 }
 
+function getCallableErrorDetails(error: unknown): CallableErrorDetails | null {
+  if (typeof error !== 'object' || error === null) {
+    return null;
+  }
+
+  const directDetails = 'details' in error ? (error as { details?: unknown }).details : undefined;
+  if (directDetails && typeof directDetails === 'object') {
+    return directDetails as CallableErrorDetails;
+  }
+
+  const customData = 'customData' in error ? (error as { customData?: unknown }).customData : undefined;
+  if (customData && typeof customData === 'object' && 'details' in customData) {
+    const nestedDetails = (customData as { details?: unknown }).details;
+    if (nestedDetails && typeof nestedDetails === 'object') {
+      return nestedDetails as CallableErrorDetails;
+    }
+  }
+
+  return null;
+}
+
 function getCallableErrorMessage(error: unknown, fallback: string) {
+  const details = getCallableErrorDetails(error);
+  if (details?.message) {
+    return details.message;
+  }
+
   if (typeof error === 'object' && error !== null && 'message' in error && typeof (error as { message?: unknown }).message === 'string') {
     return (error as { message: string }).message;
   }
@@ -114,8 +153,13 @@ function getCallableErrorMessage(error: unknown, fallback: string) {
 function shouldApplyJoinCooldown(error: unknown) {
   const code = getCallableErrorCode(error);
   const message = getCallableErrorMessage(error, '');
+  const details = getCallableErrorDetails(error);
 
   if (code === 'functions/already-exists' || code === 'functions/invalid-argument' || code === 'functions/failed-precondition') {
+    return false;
+  }
+
+  if (details?.reason === 'QUEUE_CLOSED' || details?.reason === 'CAPACITY_FULL' || details?.isFull) {
     return false;
   }
 
@@ -156,6 +200,7 @@ export default function SmartQueueGate() {
   const [selectedRoundId, setSelectedRoundId] = useState<string>('round1');
   const [queueIdentity, setQueueIdentity] = useState<QueueIdentityInput>({ studentName: '', phone: '' });
   const [identityHydrated, setIdentityHydrated] = useState(false);
+  const [closedRounds, setClosedRounds] = useState<Record<string, JoinClosureState>>({});
 
   const autoStartedRef = useRef(false);
   const joinRequestIdRef = useRef<string | null>(null);
@@ -247,6 +292,10 @@ export default function SmartQueueGate() {
       });
     }
   }, [currentRound?.id, myEntry, rounds]);
+
+  useEffect(() => {
+    setClosedRounds({});
+  }, [schoolId]);
 
   useEffect(() => {
     if (!schoolId || !selectedRound?.id) {
@@ -374,7 +423,11 @@ export default function SmartQueueGate() {
   const waitingCount = Math.max(0, queueState.lastAssignedNumber - queueState.currentNumber);
   const remainingCapacity = Math.max(0, queueState.totalCapacity - completedCount);
   const queueJoinLimit = Math.max(1, Math.ceil(getAdmissionRoundTotal(selectedRound) * 1.5));
-  const queueLimitReached = !myEntry && queueState.lastAssignedNumber >= queueJoinLimit;
+  const closedRoundState = selectedRound?.id ? closedRounds[selectedRound.id] : undefined;
+  const queueLimitReached = !myEntry && (
+    Boolean(closedRoundState?.reason) ||
+    queueState.lastAssignedNumber >= queueJoinLimit
+  );
   const selectedRoundStatusLabel = !isOpen
     ? '오픈 전'
     : remainingCapacity <= 0 || queueLimitReached
@@ -414,6 +467,10 @@ export default function SmartQueueGate() {
         : queueLimitReached
           ? `대기열 접수는 ${queueJoinLimit.toLocaleString()}번에서 마감되었습니다. 이미 번호를 받은 분들만 신청을 진행할 수 있습니다.`
           : joinDisabledReason || '아래 버튼을 눌러 대기번호를 발급받고 순서에 따라 신청을 진행해 주세요.';
+  const effectiveButtonStatusMessage =
+    queueLimitReached && closedRoundState?.message
+      ? closedRoundState.message
+      : buttonStatusMessage;
   const primaryActionLabel = joining
     ? joiningElapsed >= 10
       ? `서버가 처리 중입니다 (${joiningElapsed}초)... 화면을 닫지 마세요`
@@ -542,6 +599,7 @@ export default function SmartQueueGate() {
     setJoining(true);
     setErrorMessage(null);
     const requestId = createRequestId('joinQueue');
+    const targetRoundId = selectedRound?.id || 'round1';
     joinRequestIdRef.current = requestId;
 
     try {
@@ -589,7 +647,20 @@ export default function SmartQueueGate() {
         }));
       }
       } catch (error: unknown) {
+        const errorDetails = getCallableErrorDetails(error);
         joinRequestIdRef.current = null;
+        if (
+          targetRoundId &&
+          (errorDetails?.reason === 'QUEUE_CLOSED' || errorDetails?.reason === 'CAPACITY_FULL' || errorDetails?.isFull)
+        ) {
+          setClosedRounds((prev) => ({
+            ...prev,
+            [targetRoundId]: {
+              reason: errorDetails.reason,
+              message: errorDetails.message || getCallableErrorMessage(error, '현재 접수가 마감되었습니다.')
+            }
+          }));
+        }
         if (shouldApplyJoinCooldown(error)) {
           setJoinCooldownUntil(Date.now() + JOIN_RETRY_COOLDOWN_MS);
         } else {
@@ -927,7 +998,7 @@ export default function SmartQueueGate() {
             </div>
 
             <div className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm leading-relaxed text-gray-600">
-              <p>{buttonStatusMessage}</p>
+              <p>{effectiveButtonStatusMessage}</p>
             </div>
 
             <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-4">

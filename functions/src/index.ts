@@ -3,6 +3,13 @@ import * as functions from 'firebase-functions';
 import * as functionsV1 from 'firebase-functions/v1';
 import * as admin from 'firebase-admin';
 import axios from 'axios';
+import {
+  type AdmissionRoundConfig,
+  checkRateLimit as sharedCheckRateLimit,
+  getRateLimitIdentifier as sharedGetRateLimitIdentifier,
+  getSchoolRoundCapacity,
+  normalizeCallableRequest as sharedNormalizeCallableRequest
+} from './shared/queueShared';
 export {
   autoAdvanceQueue,
   cleanupExpiredReservations,
@@ -43,66 +50,6 @@ interface AlimTalkCredentials {
   senderKey?: string;
 }
 
-interface AdmissionRoundConfig {
-  id: string;
-  label: string;
-  openDateTime: string;
-  maxCapacity: number;
-  waitlistCapacity: number;
-  enabled: boolean;
-}
-
-interface NormalizedCallableRequest {
-  data: any;
-  auth: any;
-  rawRequest: any;
-}
-
-function normalizeCallableRequest(requestOrData: any, legacyContext?: any): NormalizedCallableRequest {
-  if (
-    requestOrData &&
-    typeof requestOrData === 'object' &&
-    ('data' in requestOrData || 'auth' in requestOrData || 'rawRequest' in requestOrData)
-  ) {
-    return {
-      data: requestOrData.data ?? {},
-      auth: requestOrData.auth ?? null,
-      rawRequest: requestOrData.rawRequest
-    };
-  }
-
-  if (
-    legacyContext &&
-    typeof legacyContext === 'object' &&
-    ('auth' in legacyContext || 'rawRequest' in legacyContext)
-  ) {
-    return {
-      data: requestOrData?.data ?? requestOrData ?? {},
-      auth: legacyContext.auth ?? null,
-      rawRequest: legacyContext.rawRequest
-    };
-  }
-
-  return {
-    data: requestOrData ?? {},
-    auth: null,
-    rawRequest: undefined
-  };
-}
-
-function getRateLimitIdentifier(rawRequest: any, fallback: string) {
-  const ipAddress =
-    rawRequest?.ip ||
-    rawRequest?.headers?.['x-forwarded-for'] ||
-    rawRequest?.headers?.['fastly-client-ip'];
-
-  if (typeof ipAddress === 'string' && ipAddress.trim().length > 0) {
-    return `ip_${ipAddress.split(',')[0].trim()}`;
-  }
-
-  return fallback;
-}
-
 function normalizeAdmissionRounds(schoolData: any): AdmissionRoundConfig[] {
   if (Array.isArray(schoolData?.admissionRounds) && schoolData.admissionRounds.length > 0) {
     return schoolData.admissionRounds;
@@ -121,11 +68,7 @@ function normalizeAdmissionRounds(schoolData: any): AdmissionRoundConfig[] {
 }
 
 function getRoundCapacity(schoolData: any, roundId?: string | null) {
-  const round = normalizeAdmissionRounds(schoolData).find((item) => item.id === roundId) || normalizeAdmissionRounds(schoolData)[0];
-  return {
-    roundId: round.id,
-    totalCapacity: Number(round.maxCapacity || 0) + Number(round.waitlistCapacity || 0)
-  };
+  return getSchoolRoundCapacity(schoolData, roundId);
 }
 
 async function checkRateLimit(
@@ -134,51 +77,7 @@ async function checkRateLimit(
   maxRequests = 5,
   windowMs = 60000
 ): Promise<{ allowed: boolean; retryAfter?: number }> {
-  const now = Date.now();
-  const rateLimitRef = db.collection('rateLimits').doc(identifier);
-  let result: { allowed: boolean; retryAfter?: number } = { allowed: true };
-
-  await db.runTransaction(async (transaction) => {
-    const snapshot = await transaction.get(rateLimitRef);
-
-    if (!snapshot.exists) {
-      transaction.set(rateLimitRef, {
-        count: 1,
-        firstRequest: now,
-        lastRequest: now
-      });
-      result = { allowed: true };
-      return;
-    }
-
-    const data = snapshot.data()!;
-    const elapsed = now - (data.firstRequest || 0);
-
-    if (elapsed > windowMs) {
-      transaction.update(rateLimitRef, {
-        count: 1,
-        firstRequest: now,
-        lastRequest: now
-      });
-      result = { allowed: true };
-      return;
-    }
-
-    if ((data.count || 0) >= maxRequests) {
-      result = {
-        allowed: false,
-        retryAfter: Math.max(1, Math.ceil((windowMs - elapsed) / 1000))
-      };
-      return;
-    }
-
-    transaction.update(rateLimitRef, {
-      count: admin.firestore.FieldValue.increment(1),
-      lastRequest: now
-    });
-  });
-
-  return result;
+  return sharedCheckRateLimit(db, identifier, maxRequests, windowMs);
 }
 
 async function assertAdminAccessToSchool(uid: string, schoolId: string) {
@@ -274,7 +173,7 @@ export const onRegistrationDelete = firestoreTriggers
     }
 
     const schoolRef = admin.firestore().doc(`schools/${schoolId}`);
-    const roundMeta = getRoundCapacity((deletedData || {}) as any, deletedData?.admissionRoundId);
+    const roundMeta = getSchoolRoundCapacity((deletedData || {}) as any, deletedData?.admissionRoundId);
     const queueStateRef = admin.firestore().doc(`schools/${schoolId}/queueState/${roundMeta.roundId}`);
 
     await admin.firestore().runTransaction(async (transaction) => {
@@ -319,7 +218,7 @@ export const onRegistrationDelete = firestoreTriggers
   });
 
 export const getAlimtalkTemplates = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
-  const { data, auth } = normalizeCallableRequest(request, legacyContext);
+  const { data, auth } = sharedNormalizeCallableRequest(request, legacyContext);
   if (!auth) {
     throw new functions.https.HttpsError('unauthenticated', '로그인이 필요합니다.');
   }
@@ -370,7 +269,7 @@ export const getAlimtalkTemplates = functionsV1.https.onCall(async (request: any
 });
 
 export const lookupRegistration = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
-  const { data } = normalizeCallableRequest(request, legacyContext);
+  const { data } = sharedNormalizeCallableRequest(request, legacyContext);
   const { schoolId, studentName, phoneLast4 } = data?.data || data;
 
   if (!schoolId || !studentName || !phoneLast4) {
@@ -408,11 +307,11 @@ export const lookupRegistration = functionsV1.https.onCall(async (request: any, 
 });
 
 export const cancelRegistration = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
-  const { data, rawRequest } = normalizeCallableRequest(request, legacyContext);
+  const { data, rawRequest } = sharedNormalizeCallableRequest(request, legacyContext);
   const { schoolId, registrationId, studentName, phoneLast4 } = data?.data || data;
-  const cancelRateLimit = await checkRateLimit(
+  const cancelRateLimit = await sharedCheckRateLimit(
     admin.firestore(),
-    getRateLimitIdentifier(rawRequest, `cancelRegistration_${schoolId}_${registrationId}_${String(phoneLast4)}`),
+    sharedGetRateLimitIdentifier(rawRequest, `cancelRegistration_${schoolId}_${registrationId}_${String(phoneLast4)}`),
     5,
     60000
   );
@@ -448,7 +347,7 @@ export const cancelRegistration = functionsV1.https.onCall(async (request: any, 
 
     const reg = regDoc.data()!;
     const schoolData = schoolDoc.data()!;
-    const roundMeta = getRoundCapacity(schoolData, reg.admissionRoundId);
+    const roundMeta = getSchoolRoundCapacity(schoolData, reg.admissionRoundId);
     const queueStateRef = admin.firestore().doc(`schools/${schoolId}/queueState/${roundMeta.roundId}`);
     const queueStateDoc = await transaction.get(queueStateRef);
     const queueState = queueStateDoc.exists ? queueStateDoc.data() || {} : {};
@@ -502,7 +401,7 @@ export const cancelRegistration = functionsV1.https.onCall(async (request: any, 
 });
 
 export const syncSchoolSlots = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
-  const { data, auth } = normalizeCallableRequest(request, legacyContext);
+  const { data, auth } = sharedNormalizeCallableRequest(request, legacyContext);
   if (!auth) {
     throw new functions.https.HttpsError('unauthenticated', '로그인이 필요합니다.');
   }
