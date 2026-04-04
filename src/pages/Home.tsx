@@ -10,6 +10,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    document.title = '홍커뮤니케이션 예약시스템';
     const fetchSchools = async () => {
       try {
         const querySnapshot = await getDocs(collection(db, 'schools'));
@@ -60,8 +61,11 @@ export default function Home() {
               <span className="text-[#003B71]">공정한 신청 기회 부여</span>
             </h1>
             <p className="text-lg sm:text-xl text-[#555555] font-medium tracking-tight leading-relaxed mx-auto max-w-2xl px-4 sm:px-0">
-              접수 시작 시간에 접속자가 몰리더라도 시스템이 순차적으로 진입을 제어하여, <br className="hidden md:block" />
-              모든 사용자에게 공평한 접수 기회를 제공합니다.
+              순간 트래픽 분산 제어 로직을 통해 <br className="hidden md:block" />
+              오픈시작 시간에 참여하신 분들께 최대한 기회를 제공합니다.
+            </p>
+            <p className="mt-4 text-[13px] font-bold text-[#e11d48]">
+              * 과도한 트래픽이나 서버 장애 발생 시 최대한 빠르게 복구됩니다.
             </p>
           </div>
 

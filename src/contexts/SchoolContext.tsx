@@ -1,4 +1,4 @@
-﻿import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 /* eslint-disable react-refresh/only-export-components */
 import { useParams } from 'react-router-dom';
 import { doc, onSnapshot } from 'firebase/firestore';
@@ -41,7 +41,11 @@ export function SchoolProvider({ children }: { children: React.ReactNode }) {
           const schoolData = { ...docSnap.data(), id: docSnap.id } as SchoolConfig;
           setSchoolConfig(schoolData);
           setError(null);
-          document.title = `${schoolData.name} | 행사 신청 시스템`;
+          if (schoolData.id === 'snu' || schoolData.name?.includes('서울대학교')) {
+            document.title = '서울대학교입학본부 예약시스템';
+          } else {
+            document.title = `${schoolData.name} | 행사 신청 시스템`;
+          }
         } else {
           setSchoolConfig(null);
           setError('학교 정보를 찾을 수 없습니다.');
