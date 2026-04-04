@@ -1468,7 +1468,8 @@ export const startRegistrationSession = standardRuntime.https.onCall(async (requ
       }, { merge: true });
     }
 
-    const expiresAt = now + DEFAULT_SESSION_MS;
+    const activeSessionTimeoutMs = Number(schoolData.sessionTimeoutSettings?.activeSessionTimeoutMs || DEFAULT_SESSION_MS);
+    const expiresAt = now + (activeSessionTimeoutMs > 0 ? activeSessionTimeoutMs : DEFAULT_SESSION_MS);
     transaction.set(reservationRef, {
       roundId: round.id,
       roundLabel: round.label,
@@ -1561,7 +1562,10 @@ export const getReservationSession = standardRuntime.https.onCall(async (request
     throw new functions.https.HttpsError('resource-exhausted', `요청이 너무 빈번합니다. ${ipRateLimit.retryAfter}초 후에 다시 시도해 주세요.`);
   }
 
-  const reservationSnapshot = await reservationsRef(db, schoolId).doc(sessionId).get();
+  const [reservationSnapshot, schoolSnapshot] = await Promise.all([
+    reservationsRef(db, schoolId).doc(sessionId).get(),
+    db.doc(`schools/${schoolId}`).get()
+  ]);
   if (!reservationSnapshot.exists) {
     throw new functions.https.HttpsError('failed-precondition', '유효한 등록 세션이 아닙니다.');
   }
@@ -1587,7 +1591,9 @@ export const getReservationSession = standardRuntime.https.onCall(async (request
     throw new functions.https.HttpsError('failed-precondition', '유효한 등록 세션이 아닙니다.');
   }
 
-  if (Date.now() > reservation.expiresAt + SESSION_SUBMIT_GRACE_MS) {
+  const schoolData = schoolSnapshot.data() || {};
+  const gracePeriodMs = Number(schoolData.sessionTimeoutSettings?.gracePeriodMs || SESSION_SUBMIT_GRACE_MS);
+  if (Date.now() > reservation.expiresAt + gracePeriodMs) {
     await expireReservationDocument(db, schoolId, sessionId, auth.uid);
     throw new functions.https.HttpsError('deadline-exceeded', '등록 세션이 만료되었습니다.');
   }
@@ -1798,7 +1804,8 @@ export const confirmReservation = standardRuntime.https.onCall(async (request: a
     if (reservation.status !== 'reserved' && reservation.status !== 'processing') {
       throw new functions.https.HttpsError('failed-precondition', '유효한 등록 세션이 아닙니다.');
     }
-    if (now > reservation.expiresAt + SESSION_SUBMIT_GRACE_MS) {
+    const gracePeriodMs = Number(schoolData.sessionTimeoutSettings?.gracePeriodMs || SESSION_SUBMIT_GRACE_MS);
+    if (now > reservation.expiresAt + gracePeriodMs) {
       throw new functions.https.HttpsError('deadline-exceeded', '등록 세션이 만료되었습니다.');
     }
 

@@ -38,6 +38,15 @@ export interface SchoolConfig {
     maxActiveSessions: number;
     enabled: boolean;
   };
+  sessionTimeoutSettings?: {
+    activeSessionTimeoutMs?: number;
+    gracePeriodMs?: number;
+  };
+  emergencyNotice?: {
+    enabled: boolean;
+    message: string;
+  };
+  forceActiveRound?: 'round1' | 'round2' | null;
   abTestSettings?: {
     enabled: boolean;
     splitRatio: number;

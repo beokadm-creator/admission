@@ -75,6 +75,29 @@ function getFirebaseError(error: unknown) {
   return error as FirebaseError | undefined;
 }
 
+const DEFAULT_PRIVACY_TITLE = '[필수] 개인정보 수집 및 이용 동의';
+const DEFAULT_PRIVACY_CONTENT = `프로그램 참가를 위해 아래와 같이 개인정보를 수집 및 이용합니다.
+
+1. 수집항목: 성명, 연락처, 이메일, 학번, 학교명, 학년, 지역 등 신청서 기재 항목
+2. 수집목적: 참가 대기 및 신청 관리, 본인 확인, 프로그램 운영 및 만족도 조사
+3. 보유 및 이용기간: 프로그램 운영 종료 후 1년 이내 (관계 법령 준수)
+4. 동의 거부 시 불이익: 귀하는 동의를 거부할 권리가 있으나, 동의 거부 시 프로그램 참가가 불가할 수 있습니다.`;
+
+const DEFAULT_THIRDPARTY_TITLE = '[필수] 개인정보 제3자 제공 동의';
+const DEFAULT_THIRDPARTY_CONTENT = `원활한 프로그램 운영을 위해 아래와 같이 개인정보를 제3자에게 제공합니다.
+
+1. 제공받는 자: 주최 기관 및 운영 대행사
+2. 제공항목: 성명, 연락처, 신청 정보 일체
+3. 이용목적: 행사 참여 확인, 알림톡/문자 발송 및 관련 CS 응대
+4. 보유 및 이용기간: 이용 목적 달성 시까지`;
+
+const DEFAULT_SMS_TITLE = '[필수] 알림톡 및 문자 수신 동의';
+const DEFAULT_SMS_CONTENT = `프로그램 운영 대행사는 주최 기관의 업무를 대행하여 프로그램 신청 결과 및 안내 사항을 발신합니다.
+
+1. 수신 내용: 대기번호 발급 안내, 신청 접수 확인, 선발 결과, 행사 일정 변경 등
+2. 발신 수단: 카카오 알림톡 또는 SMS(문자)
+3. 해당 동의는 프로그램 운영 기간 동안 발송되는 필수 안내 사항에 대한 동의를 포함합니다.`;
+
 export default function RegisterPage() {
   const { schoolId } = useParams<{ schoolId: string }>();
   const { schoolConfig } = useSchool();
@@ -654,24 +677,24 @@ export default function RegisterPage() {
 
             <div className="space-y-0 text-gray-800">
               <TermsAccordion
-                title={schoolConfig.terms.privacy.title || '[필수] 개인정보 수집 및 이용 동의'}
-                content={schoolConfig.terms.privacy.content}
+                title={schoolConfig.terms?.privacy?.title || DEFAULT_PRIVACY_TITLE}
+                content={schoolConfig.terms?.privacy?.content || DEFAULT_PRIVACY_CONTENT}
                 isOpen={openTerms === 1}
                 onToggle={() => setOpenTerms(openTerms === 1 ? null : 1)}
                 isChecked={termsAgreed.privacy}
                 onCheck={(value) => setTermsAgreed((previous) => ({ ...previous, privacy: value }))}
               />
               <TermsAccordion
-                title={schoolConfig.terms.thirdParty.title || '[필수] 개인정보 제3자 제공 동의'}
-                content={schoolConfig.terms.thirdParty.content}
+                title={schoolConfig.terms?.thirdParty?.title || DEFAULT_THIRDPARTY_TITLE}
+                content={schoolConfig.terms?.thirdParty?.content || DEFAULT_THIRDPARTY_CONTENT}
                 isOpen={openTerms === 2}
                 onToggle={() => setOpenTerms(openTerms === 2 ? null : 2)}
                 isChecked={termsAgreed.thirdParty}
                 onCheck={(value) => setTermsAgreed((previous) => ({ ...previous, thirdParty: value }))}
               />
               <TermsAccordion
-                title={schoolConfig.terms.sms.title || '[필수] 문자 수신 동의'}
-                content={schoolConfig.terms.sms.content}
+                title={schoolConfig.terms?.sms?.title || DEFAULT_SMS_TITLE}
+                content={schoolConfig.terms?.sms?.content || DEFAULT_SMS_CONTENT}
                 isOpen={openTerms === 3}
                 onToggle={() => setOpenTerms(openTerms === 3 ? null : 3)}
                 isChecked={termsAgreed.sms}

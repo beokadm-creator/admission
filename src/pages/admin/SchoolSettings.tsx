@@ -1,9 +1,9 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useNavigate, useParams } from 'react-router-dom';
 import { useCallback } from 'react';
 import { useForm } from 'react-hook-form';
-import { deleteField, doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
+import { collection, deleteField, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, setDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import {
   Activity,
@@ -215,76 +215,12 @@ export default function SchoolSettings() {
   const [templateLoadError, setTemplateLoadError] = useState<string | null>(null);
   const [templateLoadSuccess, setTemplateLoadSuccess] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [emergencyLoading, setEmergencyLoading] = useState(false);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  // forceActiveRound 실제 DB 값 (watch()는 form 초기값만 반영하므로 별도 관리)
+  const [activeForceRound, setActiveForceRound] = useState<'round1' | 'round2' | null>(null);
 
-  const { register, handleSubmit, setValue, watch } = useForm<SettingsFormValues>({
-    defaultValues: {
-      id: '',
-      name: '',
-      logoUrl: '',
-      maxCapacity: 950,
-      waitlistCapacity: 50,
-      openDateTime: '',
-      admissionRounds: [
-        {
-          id: 'round1',
-          label: '1차',
-          openDateTime: '',
-          maxCapacity: 950,
-          waitlistCapacity: 50,
-          enabled: true
-        },
-        {
-          id: 'round2',
-          label: '2차',
-          openDateTime: '',
-          maxCapacity: 0,
-          waitlistCapacity: 0,
-          enabled: false
-        }
-      ],
-      eventDate: '',
-      heroMessage: '',
-      programInfo: '',
-      parkingMessage: '',
-      usePopup: false,
-      popupContent: '',
-      programImageUrl: '',
-      previewToken: '',
-      queueSettings: {
-        enabled: true,
-        maxActiveSessions: 60
-      },
-      formFields: {
-        collectEmail: false,
-        collectAddress: false,
-        collectSchoolName: false,
-        collectGrade: false,
-        collectStudentId: false,
-        gradeOptionsText: ''
-      },
-      alimtalkSettings: {
-        nhnAppKey: '',
-        nhnSecretKey: '',
-        nhnSenderKey: '',
-        successTemplate: '',
-        waitlistTemplate: '',
-        promoteTemplate: '',
-        confirmTemplateCode: '',
-        waitlistTemplateCode: ''
-      },
-      buttonSettings: {
-        showLookupButton: true
-      },
-      terms: {
-        privacy: { title: '', content: '', required: true },
-        thirdParty: { title: '', content: '', required: true },
-        sms: { title: '', content: '', required: true }
-      },
-      isActive: true,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
-    }
-  });
+  const { register, handleSubmit, setValue, watch, reset } = useForm<SettingsFormValues>();
 
   const watchedRound1RegularCapacity = watch('admissionRounds.0.maxCapacity') || 0;
   const watchedRound1WaitlistCapacity = watch('admissionRounds.0.waitlistCapacity') || 0;
@@ -303,6 +239,7 @@ export default function SchoolSettings() {
     watchedRound1RegularCapacity +
     watchedRound1WaitlistCapacity +
     (watchedRound2Enabled ? watchedRound2RegularCapacity + watchedRound2WaitlistCapacity : 0);
+
   const currentAdmissionRound = useMemo(
     () =>
       getCurrentAdmissionRound({
@@ -338,6 +275,7 @@ export default function SchoolSettings() {
       watchedRound2WaitlistCapacity
     ]
   );
+
   const currentRoundTotalCapacity = useMemo(
     () => getAdmissionRoundTotal(currentAdmissionRound),
     [currentAdmissionRound]
@@ -374,66 +312,73 @@ export default function SchoolSettings() {
         }
 
         const data = docSnap.data() as SchoolConfig;
+        setActiveForceRound((data.forceActiveRound as 'round1' | 'round2' | null) ?? null);
         const privateSettingsSnap = await getDoc(doc(db, 'schools', schoolId, 'privateSettings', 'alimtalk'));
         const privateAlimtalk = privateSettingsSnap.exists() ? privateSettingsSnap.data() : null;
         const heroMessage = data.heroMessage || data.parkingMessage || '';
-        setValue('id', schoolId);
-        setValue('name', data.name || '');
-        setValue('logoUrl', data.logoUrl || '');
+        
         const rounds = normalizeAdmissionRounds(data);
-        setValue('maxCapacity', rounds[0]?.maxCapacity || data.maxCapacity || 0);
-        setValue('waitlistCapacity', rounds[0]?.waitlistCapacity || data.waitlistCapacity || 0);
-        setValue('openDateTime', toLocalDateTimeValue(rounds[0]?.openDateTime || data.openDateTime));
-        setValue('admissionRounds.0.id', rounds[0]?.id || 'round1');
-        setValue('admissionRounds.0.label', rounds[0]?.label || '1차');
-        setValue('admissionRounds.0.openDateTime', toLocalDateTimeValue(rounds[0]?.openDateTime));
-        setValue('admissionRounds.0.maxCapacity', rounds[0]?.maxCapacity || 0);
-        setValue('admissionRounds.0.waitlistCapacity', rounds[0]?.waitlistCapacity || 0);
-        setValue('admissionRounds.0.enabled', true);
-        setValue('admissionRounds.1.id', rounds[1]?.id || 'round2');
-        setValue('admissionRounds.1.label', rounds[1]?.label || '2차');
-        setValue('admissionRounds.1.openDateTime', toLocalDateTimeValue(rounds[1]?.openDateTime));
-        setValue('admissionRounds.1.maxCapacity', rounds[1]?.maxCapacity || 0);
-        setValue('admissionRounds.1.waitlistCapacity', rounds[1]?.waitlistCapacity || 0);
-        setValue('admissionRounds.1.enabled', rounds[1]?.enabled === true);
-        setValue('eventDate', data.eventDate ? data.eventDate.slice(0, 10) : '');
-        setValue('heroMessage', heroMessage);
-        setValue('programInfo', data.programInfo || '');
-        setValue('parkingMessage', heroMessage);
-        setValue('usePopup', !!data.usePopup);
-        setValue('popupContent', data.popupContent || '');
-        setValue('previewToken', data.previewToken || '');
-        setValue('queueSettings.enabled', data.queueSettings?.enabled !== false);
-        setValue('queueSettings.maxActiveSessions', data.queueSettings?.maxActiveSessions || 60);
-        setValue('formFields.collectEmail', !!data.formFields?.collectEmail);
-        setValue('formFields.collectAddress', !!data.formFields?.collectAddress);
-        setValue('formFields.collectSchoolName', !!data.formFields?.collectSchoolName);
-        setValue('formFields.collectGrade', !!data.formFields?.collectGrade);
-        setValue('formFields.collectStudentId', !!data.formFields?.collectStudentId);
-        setValue('alimtalkSettings.nhnAppKey', privateAlimtalk?.nhnAppKey || '');
-        setValue('alimtalkSettings.nhnSecretKey', privateAlimtalk?.nhnSecretKey || '');
-        setValue('alimtalkSettings.nhnSenderKey', privateAlimtalk?.nhnSenderKey || '');
-        setValue(
-          'alimtalkSettings.successTemplate',
-          data.alimtalkSettings?.successTemplate || data.alimtalkSettings?.confirmTemplateCode || ''
-        );
-        setValue(
-          'alimtalkSettings.waitlistTemplate',
-          data.alimtalkSettings?.waitlistTemplate || data.alimtalkSettings?.waitlistTemplateCode || ''
-        );
-        setValue('alimtalkSettings.promoteTemplate', data.alimtalkSettings?.promoteTemplate || '');
-        setValue(
-          'alimtalkSettings.confirmTemplateCode',
-          data.alimtalkSettings?.confirmTemplateCode || data.alimtalkSettings?.successTemplate || ''
-        );
-        setValue(
-          'alimtalkSettings.waitlistTemplateCode',
-          data.alimtalkSettings?.waitlistTemplateCode || data.alimtalkSettings?.waitlistTemplate || ''
-        );
-        setValue('buttonSettings.showLookupButton', data.buttonSettings?.showLookupButton !== false);
-        setValue('isActive', data.isActive !== false);
-        setValue('programImageUrl', data.programImageUrl || '');
-        setValue('formFields.gradeOptionsText', (data.formFields?.gradeOptions || []).join('\n'));
+        const formValues: any = {
+            ...data,
+            id: schoolId,
+            name: data.name || '',
+            logoUrl: data.logoUrl || '',
+            eventDate: data.eventDate ? data.eventDate.slice(0, 10) : '',
+            heroMessage,
+            programInfo: data.programInfo || '',
+            admissionRounds: [
+                {
+                    ...rounds[0],
+                    id: 'round1',
+                    label: '1차',
+                    openDateTime: toLocalDateTimeValue(rounds[0]?.openDateTime || data.openDateTime),
+                    maxCapacity: rounds[0]?.maxCapacity || data.maxCapacity || 0,
+                    waitlistCapacity: rounds[0]?.waitlistCapacity || data.waitlistCapacity || 0,
+                    enabled: true
+                },
+                {
+                    ...rounds[1],
+                    id: 'round2',
+                    label: '2차',
+                    openDateTime: toLocalDateTimeValue(rounds[1]?.openDateTime),
+                    maxCapacity: rounds[1]?.maxCapacity || 0,
+                    waitlistCapacity: rounds[1]?.waitlistCapacity || 0,
+                    enabled: rounds[1]?.enabled === true
+                }
+            ],
+            queueSettings: {
+                enabled: data.queueSettings?.enabled !== false,
+                maxActiveSessions: data.queueSettings?.maxActiveSessions || 60
+            },
+            alimtalkSettings: {
+                nhnAppKey: privateAlimtalk?.nhnAppKey || '',
+                nhnSecretKey: privateAlimtalk?.nhnSecretKey || '',
+                nhnSenderKey: privateAlimtalk?.nhnSenderKey || '',
+                successTemplate: data.alimtalkSettings?.successTemplate || data.alimtalkSettings?.confirmTemplateCode || '',
+                waitlistTemplate: data.alimtalkSettings?.waitlistTemplate || data.alimtalkSettings?.waitlistTemplateCode || '',
+                promoteTemplate: data.alimtalkSettings?.promoteTemplate || '',
+                confirmTemplateCode: data.alimtalkSettings?.confirmTemplateCode || data.alimtalkSettings?.successTemplate || '',
+                waitlistTemplateCode: data.alimtalkSettings?.waitlistTemplateCode || data.alimtalkSettings?.waitlistTemplate || ''
+            },
+            formFields: {
+                ...data.formFields,
+                gradeOptionsText: (data.formFields?.gradeOptions || []).join('\n')
+            },
+            // DB 저장값은 ms 단위 → 폼 표시용으로 역변환 (분/초)
+            sessionTimeoutSettings: {
+                activeSessionTimeoutMs: Math.round((data.sessionTimeoutSettings?.activeSessionTimeoutMs || 3 * 60 * 1000) / (60 * 1000)),
+                gracePeriodMs: Math.round((data.sessionTimeoutSettings?.gracePeriodMs || 90 * 1000) / 1000)
+            }
+        };
+        
+        reset(formValues);
+
+        // Load audit logs if MASTER
+        if (adminProfile?.role === 'MASTER') {
+          const logsRef = collection(db, 'schools', schoolId, 'adminAuditLogs');
+          const logsSnap = await getDocs(query(logsRef, orderBy('timestamp', 'desc'), limit(10)));
+          setAuditLogs(logsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        }
       } catch (error) {
         console.error('Error loading school settings:', error);
         alert('학교 설정을 불러오는 중 오류가 발생했습니다.');
@@ -443,7 +388,7 @@ export default function SchoolSettings() {
     };
 
     void loadSchool();
-  }, [adminProfile, navigate, schoolId, setValue]);
+  }, [adminProfile, navigate, schoolId, reset]);
 
   useEffect(() => {
     if (!schoolId || !currentAdmissionRound) return;
@@ -514,6 +459,77 @@ export default function SchoolSettings() {
     return Math.min(100, Math.round(((slotStats.confirmed + slotStats.reserved) / slotStats.total) * 100));
   }, [slotStats]);
 
+  const handleRecalculate = async () => {
+    if (!schoolId) return;
+    setEmergencyLoading(true);
+    try {
+      const runAction = httpsCallable(functions, 'runAdminQueueAction');
+      await runAction({ schoolId, action: 'recalculateState' });
+      alert('데이터 정산이 완료되었습니다. 최신 현황이 반영되었습니다.');
+    } catch (error: any) {
+      console.error('Recalculate error:', error);
+      alert('정산 중 오류가 발생했습니다: ' + (error.message || '알 수 없는 오류'));
+    } finally {
+      setEmergencyLoading(false);
+    }
+  };
+
+  const handleCleanupStale = async () => {
+    if (!schoolId) return;
+    setEmergencyLoading(true);
+    try {
+      const runAction = httpsCallable(functions, 'runAdminQueueAction');
+      const response: any = await runAction({ schoolId, action: 'expireStaleReservations' });
+      alert(`만료 세션 정리가 완료되었습니다. (정리된 세션: ${response.data?.expiredCount || 0}개)`);
+    } catch (error: any) {
+      console.error('Cleanup error:', error);
+      alert('정리 중 오류가 발생했습니다: ' + (error.message || '알 수 없는 오류'));
+    } finally {
+      setEmergencyLoading(false);
+    }
+  };
+
+  const handleQuickBoost = async (amount: number) => {
+    if (!schoolId || !currentAdmissionRound) return;
+    if (!window.confirm(`${currentAdmissionRound.label}의 정규 정원을 ${amount}명 늘리시겠습니까?`)) return;
+
+    setEmergencyLoading(true);
+    try {
+      const roundIdx = currentAdmissionRound.id === 'round1' ? 0 : 1;
+      const currentVal = Number(watch(`admissionRounds.${roundIdx}.maxCapacity` as any) || 0);
+      const newVal = currentVal + amount;
+      
+      setValue(`admissionRounds.${roundIdx}.maxCapacity` as any, newVal);
+      await handleSubmit(onSubmit)();
+    } catch (error: any) {
+      console.error('Boost error:', error);
+      alert('증원 중 오류가 발생했습니다.');
+    } finally {
+      setEmergencyLoading(false);
+    }
+  };
+
+  const handleForceRoundSwitch = async (roundId: 'round1' | 'round2' | null) => {
+    if (!schoolId) return;
+    const label = roundId === 'round1' ? '1차 강제 활성화' : roundId === 'round2' ? '2차 강제 활성화' : '자동 전환 모드';
+    if (!window.confirm(`${label}로 설정을 변경하시겠습니까?`)) return;
+
+    setEmergencyLoading(true);
+    try {
+      await setDoc(doc(db, 'schools', schoolId), {
+        forceActiveRound: roundId,
+        updatedAt: Date.now()
+      }, { merge: true });
+      setActiveForceRound(roundId);
+      alert(`${label} 설정이 완료되었습니다.`);
+    } catch (error: any) {
+      console.error('Force switch error:', error);
+      alert('설정 변경 중 오류가 발생했습니다.');
+    } finally {
+      setEmergencyLoading(false);
+    }
+  };
+
   const handleFullReset = async () => {
     if (!window.confirm('경고: 해당 학교의 모든 신청 내역, 예약 세션, 대기열이 즉시 초기화됩니다.\n정말로 모든 데이터를 리셋하시겠습니까?')) return;
     
@@ -528,7 +544,6 @@ export default function SchoolSettings() {
       const resetFn = httpsCallable(functions, 'resetSchoolState');
       await resetFn({ schoolId });
       alert('모든 데이터가 성공적으로 초기화되었습니다.');
-      // 데이터 갱신을 위해 새로고침 또는 리로드
       window.location.reload();
     } catch (error: any) {
       console.error('Reset error:', error);
@@ -539,7 +554,7 @@ export default function SchoolSettings() {
   };
 
   const handleLoadTemplates = async () => {
-    if (!watchedNhnAppKey.trim() || !watchedNhnSecretKey.trim()) {
+    if (!watchedNhnAppKey?.trim() || !watchedNhnSecretKey?.trim()) {
       setTemplateLoadError('NHN App Key와 Secret Key를 먼저 입력해 주세요.');
       setTemplateLoadSuccess(null);
       return;
@@ -559,12 +574,12 @@ export default function SchoolSettings() {
       const templates = normalizeTemplateList(response.data?.templates || []);
       setTemplateOptions(templates);
       if (templates.length === 0) {
-        setTemplateLoadSuccess('조회는 완료됐지만 불러온 템플릿이 없습니다. NHN 콘솔에 승인된 템플릿이 있는지 확인해 주세요.');
+        setTemplateLoadSuccess('조회는 완료됐지만 불러온 템플릿이 없습니다.');
       } else {
         setTemplateLoadSuccess(`${templates.length.toLocaleString()}개의 템플릿을 불러왔습니다.`);
       }
     } catch (error: any) {
-      console.error('Error loading NHN AlimTalk templates:', error);
+      console.error('Error loading templates:', error);
       setTemplateLoadError(error?.message || '템플릿을 불러오는 중 오류가 발생했습니다.');
     } finally {
       setLoadingTemplates(false);
@@ -577,13 +592,11 @@ export default function SchoolSettings() {
       setValue('alimtalkSettings.confirmTemplateCode', code);
       return;
     }
-
     if (target === 'waitlist') {
       setValue('alimtalkSettings.waitlistTemplate', code);
       setValue('alimtalkSettings.waitlistTemplateCode', code);
       return;
     }
-
     setValue('alimtalkSettings.promoteTemplate', code);
   };
 
@@ -608,13 +621,14 @@ export default function SchoolSettings() {
       const waitlistTemplate =
         data.alimtalkSettings?.waitlistTemplate?.trim() || data.alimtalkSettings?.waitlistTemplateCode?.trim() || '';
       const promoteTemplate = data.alimtalkSettings?.promoteTemplate?.trim() || '';
-      const sanitizedDoc = {
+      
+      const sanitizedDoc: any = {
         ...data,
         id: schoolId,
         maxCapacity: firstRound?.maxCapacity || 0,
         waitlistCapacity: firstRound?.waitlistCapacity || 0,
         openDateTime: firstRound?.openDateTime || '',
-        admissionRounds,
+        admissionRounds: admissionRounds.map(r => ({ ...r, openDateTime: toIsoDateTime(r.openDateTime) })),
         eventDate: data.eventDate || '',
         heroMessage: heroCopy,
         parkingMessage: heroCopy,
@@ -646,6 +660,14 @@ export default function SchoolSettings() {
           confirmTemplateCode: successTemplate,
           waitlistTemplateCode: waitlistTemplate
         },
+        sessionTimeoutSettings: {
+          activeSessionTimeoutMs: (data.sessionTimeoutSettings?.activeSessionTimeoutMs || 3) * 60 * 1000,
+          gracePeriodMs: (data.sessionTimeoutSettings?.gracePeriodMs || 90) * 1000
+        },
+        emergencyNotice: {
+          enabled: !!data.emergencyNotice?.enabled,
+          message: data.emergencyNotice?.message || ''
+        },
         updatedAt: Date.now()
       };
 
@@ -660,47 +682,36 @@ export default function SchoolSettings() {
         },
         { merge: true }
       );
-      await setDoc(
-        doc(db, 'schools', schoolId),
-        {
-          alimtalkSettings: {
-            nhnAppKey: deleteField(),
-            nhnSecretKey: deleteField(),
-            nhnSenderKey: deleteField()
-          }
-        },
-        { merge: true }
-      );
+      
+      // Update Queue States
       await setDoc(
         doc(db, 'schools', schoolId, 'queueState', 'round1'),
         {
           roundId: 'round1',
-          roundLabel: '1차',
           totalCapacity: firstRoundTotal,
-          availableCapacity: Math.max(0, firstRoundTotal - ((slotStats?.confirmed || 0) + (slotStats?.reserved || 0))),
           queueEnabled: sanitizedDoc.queueSettings.enabled,
           maxActiveSessions: sanitizedDoc.queueSettings.maxActiveSessions,
           updatedAt: Date.now()
         },
         { merge: true }
       );
-      await setDoc(
-        doc(db, 'schools', schoolId, 'queueState', 'round2'),
-        {
-          roundId: 'round2',
-          roundLabel: '2차',
-          totalCapacity: (admissionRounds[1]?.maxCapacity || 0) + (admissionRounds[1]?.waitlistCapacity || 0),
-          availableCapacity: (admissionRounds[1]?.maxCapacity || 0) + (admissionRounds[1]?.waitlistCapacity || 0),
-          queueEnabled: sanitizedDoc.queueSettings.enabled,
-          maxActiveSessions: sanitizedDoc.queueSettings.maxActiveSessions,
-          updatedAt: Date.now()
-        },
-        { merge: true }
-      );
+      if (admissionRounds[1]) {
+        await setDoc(
+            doc(db, 'schools', schoolId, 'queueState', 'round2'),
+            {
+              roundId: 'round2',
+              totalCapacity: (admissionRounds[1].maxCapacity || 0) + (admissionRounds[1].waitlistCapacity || 0),
+              queueEnabled: sanitizedDoc.queueSettings.enabled,
+              maxActiveSessions: sanitizedDoc.queueSettings.maxActiveSessions,
+              updatedAt: Date.now()
+            },
+            { merge: true }
+        );
+      }
 
       alert('설정이 저장되었습니다.');
     } catch (error) {
-      console.error('Error saving school settings:', error);
+      console.error('Error saving settings:', error);
       alert('설정 저장 중 오류가 발생했습니다.');
     }
   };
@@ -716,22 +727,17 @@ export default function SchoolSettings() {
 
   const getReservationStatusColor = (status: Reservation['status']) => {
     switch (status) {
-      case 'reserved':
-        return 'border-amber-200 bg-amber-50 text-amber-800';
-      case 'processing':
-        return 'border-blue-200 bg-blue-50 text-blue-800';
-      case 'confirmed':
-        return 'border-emerald-200 bg-emerald-50 text-emerald-800';
-      case 'expired':
-        return 'border-rose-200 bg-rose-50 text-rose-800';
-      default:
-        return 'border-gray-200 bg-gray-50 text-gray-700';
+      case 'reserved': return 'border-amber-200 bg-amber-50 text-amber-800';
+      case 'processing': return 'border-blue-200 bg-blue-50 text-blue-800';
+      case 'confirmed': return 'border-emerald-200 bg-emerald-50 text-emerald-800';
+      case 'expired': return 'border-rose-200 bg-rose-50 text-rose-800';
+      default: return 'border-gray-200 bg-gray-50 text-gray-700';
     }
   };
 
   if (pageLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
         <div className="text-center">
           <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600" />
           <p className="text-gray-600">학교 설정을 불러오는 중입니다.</p>
@@ -741,28 +747,22 @@ export default function SchoolSettings() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      <div className="sticky top-0 z-10 border-b bg-white/95 shadow-sm backdrop-blur">
+    <div className="min-h-screen bg-gray-50 pb-20">
+      <div className="sticky top-0 z-20 border-b bg-white/95 shadow-sm backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-4">
-            <button
-              onClick={() => navigate('/admin/schools')}
-              className="rounded-lg p-2 transition-colors hover:bg-gray-100"
-            >
+            <button onClick={() => navigate('/admin/schools')} className="rounded-lg p-2 transition-colors hover:bg-gray-100">
               <ArrowLeft className="h-5 w-5 text-gray-600" />
             </button>
             <div>
               <h1 className="flex items-center text-2xl font-bold text-gray-900">
                 <Settings className="mr-2 h-6 w-6 text-blue-600" />
-                {schoolId}
+                {watch('name') || schoolId}
               </h1>
-              <p className="mt-1 text-sm text-gray-500">게이트 안내, 정원, 대기열 설정을 관리합니다.</p>
+              <p className="mt-1 text-sm text-gray-500">운영 현황 및 게이트 설정을 관리합니다.</p>
             </div>
           </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium transition-colors hover:bg-gray-200"
-          >
+          <button onClick={handleLogout} className="flex items-center gap-2 rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium transition-colors hover:bg-gray-200">
             <LogOut className="h-4 w-4" />
             로그아웃
           </button>
@@ -770,9 +770,9 @@ export default function SchoolSettings() {
       </div>
 
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-6 rounded-2xl bg-white shadow-sm">
-          <div className="border-b border-gray-200 px-6">
-            <nav className="flex flex-wrap gap-6" aria-label="Tabs">
+        <div className="mb-6 rounded-2xl bg-white shadow-sm overflow-hidden">
+          <div className="border-b border-gray-100 px-6">
+            <nav className="flex gap-6">
               {[
                 { key: 'overview', label: '현황판', icon: Activity },
                 { key: 'settings', label: '설정', icon: Settings },
@@ -781,11 +781,9 @@ export default function SchoolSettings() {
               ].map(({ key, label, icon: Icon }) => (
                 <button
                   key={key}
-                  onClick={() => setActiveTab(key as typeof activeTab)}
+                  onClick={() => setActiveTab(key as any)}
                   className={`flex items-center border-b-2 px-1 py-4 text-sm font-medium transition-colors ${
-                    activeTab === key
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                    activeTab === key ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'
                   }`}
                 >
                   <Icon className="mr-2 h-4 w-4" />
@@ -798,539 +796,310 @@ export default function SchoolSettings() {
 
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            <div className="rounded-2xl bg-white p-6 shadow-sm">
-              <h2 className="mb-4 flex items-center text-lg font-semibold text-gray-900">
-                <Activity className="mr-2 h-5 w-5 text-blue-600" />
-                실시간 수용 현황
-                {currentAdmissionRound ? ` · ${currentAdmissionRound.label}` : ''}
-              </h2>
+            <div className="rounded-3xl bg-white p-8 shadow-xl border border-gray-100">
+              <div className="flex items-center justify-between mb-8">
+                <h2 className="flex items-center text-xl font-bold text-gray-900">
+                  <Activity className="mr-3 h-6 w-6 text-blue-600" />
+                  실시간 수용 현황
+                  {currentAdmissionRound && (
+                    <span className="ml-3 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-600">
+                      {currentAdmissionRound.label} 모집 진행 중
+                    </span>
+                  )}
+                </h2>
+                <div className="text-xs text-gray-400 font-medium">최종 업데이트: {formatTime(slotStats?.lastUpdated || Date.now())}</div>
+              </div>
 
               {slotStats ? (
                 <>
-                  <div className="grid gap-4 md:grid-cols-4">
-                    <OverviewCard label="총 관리 인원" value={slotStats.total} helper="정규 신청 + 예비 접수" tone="blue" />
-                    <OverviewCard label="작성 완료" value={slotStats.confirmed} helper="제출 완료된 신청" tone="green" />
-                    <OverviewCard label="작성 중" value={slotStats.reserved} helper="신청서 작성 페이지 접속 인원" tone="amber" />
-                    <OverviewCard label="잔여 인원" value={slotStats.total - slotStats.confirmed} helper="최종 제출 전인 모든 잔여 인원" tone="violet" />
+                  <div className="grid gap-6 md:grid-cols-4">
+                    <OverviewCard label="총 정원" value={slotStats.total} helper="관리 대상 전체 인원" tone="blue" />
+                    <OverviewCard label="제출 완료" value={slotStats.confirmed} helper="확정 + 예비 순번 포함" tone="green" />
+                    <OverviewCard label="작성 중" value={slotStats.reserved} helper="작성 세션 점유 중" tone="amber" />
+                    <OverviewCard label="잔여석" value={slotStats.available} helper="현재 즉시 입장 가능" tone="violet" />
                   </div>
 
-                  <div className="mt-6">
-                    <div className="mb-2 flex justify-between text-sm text-gray-600">
-                      <span>진행률</span>
+                  <div className="mt-10">
+                    <div className="mb-3 flex justify-between text-sm font-bold text-gray-700">
+                      <span>전체 진행률 (작성 중 포함)</span>
                       <span>{progressRate}%</span>
                     </div>
-                    <div className="h-4 overflow-hidden rounded-full bg-gray-200">
+                    <div className="h-5 overflow-hidden rounded-full bg-gray-100 p-1">
                       <div
-                        className="h-full rounded-full bg-gradient-to-r from-blue-500 to-violet-500 transition-all duration-500"
+                        className="h-full rounded-full bg-gradient-to-r from-blue-500 via-indigo-500 to-violet-500 transition-all duration-700 shadow-lg"
                         style={{ width: `${progressRate}%` }}
                       />
                     </div>
                   </div>
                 </>
               ) : (
-                <div className="py-8 text-center text-gray-500">
-                  <RefreshCw className="mx-auto mb-2 h-8 w-8 animate-spin" />
-                  실시간 현황을 불러오는 중입니다.
+                <div className="py-20 text-center">
+                  <RefreshCw className="mx-auto mb-4 h-12 w-12 animate-spin text-blue-200" />
+                  <p className="text-gray-400 font-medium">데이터를 실시간으로 연결하는 중입니다...</p>
                 </div>
               )}
             </div>
 
-            <div className="rounded-2xl bg-white p-6 shadow-sm">
-              <h2 className="mb-4 text-lg font-semibold text-gray-900">현재 운영 설정 요약</h2>
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <SummaryCard title="1차 모집" value={`${(watchedRound1RegularCapacity + watchedRound1WaitlistCapacity).toLocaleString()}명`} />
-                <SummaryCard title="2차 모집" value={`${(watchedRound2Enabled ? watchedRound2RegularCapacity + watchedRound2WaitlistCapacity : 0).toLocaleString()}명`} />
-                <SummaryCard title="순차 입장 방식" value="빈자리 발생 시 다음 순번 즉시 입장" />
-                <SummaryCard title="총 관리 인원" value={`${totalManagedCapacity.toLocaleString()}명`} />
+            {/* Emergency Toolkit UI */}
+            <div className="rounded-3xl border-2 border-rose-100 bg-white p-8 shadow-2xl">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="flex items-center text-xl font-bold text-rose-600">
+                  <AlertTriangle className="mr-3 h-6 w-6" />
+                  긴급 관리 도구 (Emergency Toolkit)
+                </h2>
+                <span className="text-[10px] bg-rose-50 text-rose-600 px-2 py-1 rounded font-bold">LIVE OVERRIDE ENABLED</span>
+              </div>
+              
+              <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
+                <div className="space-y-4">
+                  <p className="text-[11px] font-black uppercase tracking-widest text-gray-400">System Sync</p>
+                  <div className="flex flex-col gap-3">
+                    <button onClick={handleRecalculate} disabled={emergencyLoading} className="flex items-center justify-center gap-2 rounded-2xl bg-gray-900 px-5 py-3 text-sm font-bold text-white transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50">
+                      <RefreshCw className={`h-4 w-4 ${emergencyLoading ? 'animate-spin' : ''}`} />
+                      수치 전면 재계산
+                    </button>
+                    <button onClick={handleCleanupStale} disabled={emergencyLoading} className="flex items-center justify-center gap-2 rounded-2xl border-2 border-gray-200 px-5 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 transition-all">
+                      <Clock className="h-4 w-4" />
+                      만료 세션 강제 정리
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <p className="text-[11px] font-black uppercase tracking-widest text-gray-400">Capacity Control</p>
+                  <div className="flex gap-3">
+                    <button onClick={() => handleQuickBoost(10)} disabled={emergencyLoading} className="flex-1 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-700 shadow-lg shadow-emerald-100 transition-all">+10</button>
+                    <button onClick={() => handleQuickBoost(30)} disabled={emergencyLoading} className="flex-1 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-700 shadow-lg shadow-emerald-100 transition-all">+30</button>
+                  </div>
+                  <p className="text-[10px] text-gray-400 text-center font-medium">현지 정원을 즉시 늘립니다.</p>
+                </div>
+
+                <div className="space-y-4">
+                  <p className="text-[11px] font-black uppercase tracking-widest text-gray-400">Admission Shift</p>
+                  <div className="flex flex-col gap-3">
+                    <div className="flex gap-2">
+                      <button onClick={() => handleForceRoundSwitch('round1')} className={`flex-1 rounded-2xl py-3 text-xs font-bold transition-all ${activeForceRound === 'round1' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>1차</button>
+                      <button onClick={() => handleForceRoundSwitch('round2')} className={`flex-1 rounded-2xl py-3 text-xs font-bold transition-all ${activeForceRound === 'round2' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>2차</button>
+                    </div>
+                    <button onClick={() => handleForceRoundSwitch(null)} className="rounded-2xl border-2 border-dashed border-gray-200 px-5 py-2 text-[11px] font-bold text-gray-400 hover:bg-gray-50">자동 모드 복구</button>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <p className="text-[11px] font-black uppercase tracking-widest text-gray-400">Global Notice</p>
+                  <div className="flex flex-col gap-3">
+                    <input
+                      type="text"
+                      placeholder="긴급 공지 입력..."
+                      className="rounded-2xl border-2 border-gray-100 bg-gray-50 px-4 py-3 text-sm focus:border-rose-500 focus:outline-none"
+                      onChange={(e) => setValue('emergencyNotice' as any, { enabled: !!e.target.value, message: e.target.value })}
+                      onBlur={() => handleSubmit(onSubmit)()}
+                    />
+                    <p className="text-[10px] text-gray-400 text-center leading-relaxed">입력 후 빈 배경 클릭 시<br/>사용자 배너가 즉시 노출됩니다.</p>
+                  </div>
+                </div>
               </div>
             </div>
+
+            {/* Audit Log (Master only) */}
+            {adminProfile?.role === 'MASTER' && auditLogs.length > 0 && (
+              <div className="rounded-3xl bg-white p-8 shadow-sm border border-gray-100">
+                <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-lg font-bold text-gray-900">최근 관리자 활동 (Audit Log)</h2>
+                    <span className="text-[10px] font-bold text-gray-400">최근 10개 항목</span>
+                </div>
+                <div className="space-y-4">
+                  {auditLogs.map(log => (
+                    <div key={log.id} className="flex items-center justify-between py-1 border-b border-gray-50 last:border-0 pb-4">
+                      <div>
+                        <p className="text-sm font-bold text-gray-800">{log.action}</p>
+                        <p className="text-xs text-gray-400 mt-1">{log.adminEmail} · {formatTime(log.timestamp)}</p>
+                      </div>
+                      <div className="text-[10px] bg-slate-50 px-3 py-1.5 rounded-lg text-slate-500 font-mono border border-slate-100">{log.id.slice(-6)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
         {activeTab === 'settings' && (
-          <div className="rounded-2xl bg-white p-6 shadow-sm">
-            <h2 className="mb-6 flex items-center text-lg font-semibold text-gray-900">
-              <Settings className="mr-2 h-5 w-5 text-blue-600" />
-              게이트 및 접수 설정
+          <div className="rounded-3xl bg-white p-8 shadow-xl border border-gray-100">
+            <h2 className="mb-8 flex items-center text-xl font-bold text-gray-900">
+              <Settings className="mr-3 h-6 w-6 text-blue-600" />
+              기본 정보 및 운영 설정
             </h2>
 
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
-              <section className="border-b pb-6">
-                <h3 className="mb-4 text-base font-semibold text-gray-900">행사 기본 정보</h3>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Field label="행사명">
-                    <input {...register('name', { required: true })} type="text" className={inputClassName} />
-                  </Field>
-                  <Field label="로고 이미지 URL">
-                    <input {...register('logoUrl')} type="url" className={inputClassName} />
-                  </Field>
-                  <Field label="1차 오픈 일시 (KST)">
-                    <input {...register('admissionRounds.0.openDateTime', { required: true })} type="datetime-local" className={inputClassName} />
-                  </Field>
-                  <Field label="2차 오픈 일시 (KST)">
-                    <input {...register('admissionRounds.1.openDateTime')} type="datetime-local" className={inputClassName} />
-                  </Field>
-                  <Field label="행사 일자">
-                    <input {...register('eventDate')} type="date" className={inputClassName} />
-                  </Field>
-                  <Field label="게이트 대표 안내문">
-                    <textarea
-                      {...register('heroMessage')}
-                      rows={4}
-                      className={textareaClassName}
-                      placeholder="예: 오픈 시각에 버튼이 활성화되며, 클릭 순서대로 순번이 부여됩니다."
-                    />
-                  </Field>
-                  <Field label="프로그램 안내 (텍스트)">
-                    <textarea
-                      {...register('programInfo')}
-                      rows={4}
-                      className={textareaClassName}
-                      placeholder="예: 사전 준비물, 행사 소개, 유의사항 등을 안내합니다."
-                    />
-                  </Field>
-                  <Field label="프로그램 안내 이미지 URL" hint="게이트 페이지의 '프로그램 보기' 팝업에 노출될 이미지 주소입니다.">
-                    <input {...register('programImageUrl')} type="url" className={inputClassName} placeholder="https://..." />
-                  </Field>
-                </div>
-              </section>
-
-              <section className="border-b pb-6">
-                <h3 className="mb-4 text-base font-semibold text-gray-900">모집 및 대기열 설정</h3>
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-                  <Field label="1차 정규 인원">
-                    <input
-                      {...register('admissionRounds.0.maxCapacity', { required: true, valueAsNumber: true })}
-                      type="number"
-                      min={0}
-                      className={inputClassName}
-                    />
-                  </Field>
-                  <Field label="1차 예비 인원">
-                    <input
-                      {...register('admissionRounds.0.waitlistCapacity', { required: true, valueAsNumber: true })}
-                      type="number"
-                      min={0}
-                      className={inputClassName}
-                    />
-                  </Field>
-                  <Field label="2차 정규 인원">
-                    <input
-                      {...register('admissionRounds.1.maxCapacity', { valueAsNumber: true })}
-                      type="number"
-                      min={0}
-                      className={inputClassName}
-                    />
-                  </Field>
-                  <Field label="2차 예비 인원">
-                    <input
-                      {...register('admissionRounds.1.waitlistCapacity', { valueAsNumber: true })}
-                      type="number"
-                      min={0}
-                      className={inputClassName}
-                    />
-                  </Field>
-                  <Field
-                    label="동시 작성 가능 인원"
-                    hint="예: 50으로 설정하면 작성 중 인원을 최대 50명으로 유지하고, 제출/만료 시 다음 순번 1명이 즉시 입장합니다."
-                  >
-                    <input
-                      {...register('queueSettings.maxActiveSessions', { required: true, valueAsNumber: true })}
-                      type="number"
-                      min={1}
-                      className={inputClassName}
-                    />
-                  </Field>
-                </div>
-
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  <label className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
-                    <input
-                      {...register('admissionRounds.1.enabled')}
-                      type="checkbox"
-                      className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm font-medium text-gray-700">2차 모집 사용</span>
-                  </label>
-                  <label className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
-                    <input
-                      {...register('queueSettings.enabled')}
-                      type="checkbox"
-                      className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm font-medium text-gray-700">대기열 기능 사용</span>
-                  </label>
-                  <label className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
-                    <input
-                      {...register('isActive')}
-                      type="checkbox"
-                      className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm font-medium text-gray-700">학교 페이지 활성화</span>
-                  </label>
-                </div>
-
-                <div className="mt-4 grid gap-4 md:grid-cols-1">
-                  <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
-                    <p className="font-semibold text-gray-900">현재 운영 기준</p>
-                    <p className="mt-2">동시 작성 인원: {watchedMaxActiveSessions.toLocaleString()}명</p>
-                    <p className="mt-1">1차 모집: {(watchedRound1RegularCapacity + watchedRound1WaitlistCapacity).toLocaleString()}명</p>
-                    <p className="mt-1">2차 모집: {(watchedRound2Enabled ? watchedRound2RegularCapacity + watchedRound2WaitlistCapacity : 0).toLocaleString()}명</p>
-                    <p className="mt-1">순차 입장: 자리가 생기면 다음 순번이 즉시 입장</p>
-                    <p className="mt-1">오픈 시간에는 모든 사용자에게 버튼이 동시에 열리고, 클릭 순서대로 번호가 부여됩니다.</p>
-                  </div>
-                </div>
-              </section>
-
-              <section className="border-b pb-6">
-                <h3 className="mb-4 text-base font-semibold text-gray-900">수집 정보 및 버튼 설정</h3>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-3 rounded-2xl border border-gray-200 p-4">
-                    <p className="text-sm font-semibold text-gray-900">추가 수집 항목</p>
-                    {[
-                      { key: 'collectStudentId', label: '학번' },
-                      { key: 'collectEmail', label: '이메일' },
-                      { key: 'collectSchoolName', label: '학교명' },
-                      { key: 'collectGrade', label: '학년' },
-                      { key: 'collectAddress', label: '주소' }
-                    ].map(({ key, label }) => (
-                      <label key={key} className="flex items-center gap-3">
-                        <input
-                          {...register(`formFields.${key}` as any)}
-                          type="checkbox"
-                          className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-sm text-gray-700">{label} 수집</span>
-                      </label>
-                    ))}
-
-                    <div className="mt-4 pt-4 border-t border-gray-100">
-                      <Field label="학년 선택 옵션" hint="Enter를 눌러 한 줄에 하나씩 입력해 주세요. (예: 예비1학년)">
-                        <textarea
-                          {...register('formFields.gradeOptionsText' as any)}
-                          rows={4}
-                          className={textareaClassName}
-                          placeholder="예비1학년&#10;예비2학년&#10;예비3학년"
-                        />
-                      </Field>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3 rounded-2xl border border-gray-200 p-4">
-                    <p className="text-sm font-semibold text-gray-900">화면 버튼 노출</p>
-                    <label className="flex items-center gap-3">
-                      <input
-                        {...register('buttonSettings.showLookupButton')}
-                        type="checkbox"
-                        className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      <span className="text-sm text-gray-700">조회 버튼 노출</span>
-                    </label>
-                  </div>
-                </div>
-              </section>
-
-              <section className="border-b pb-6">
-                <h3 className="mb-4 text-base font-semibold text-gray-900 flex items-center gap-2">
-                  <CheckSquare className="h-5 w-5 text-blue-600" />
-                  이용 약관 설정
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-12">
+              <section>
+                <h3 className="mb-6 flex items-center text-md font-bold text-gray-800">
+                  <span className="mr-3 flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-xs text-blue-600">1</span>
+                  행사 기본 정보
                 </h3>
-                <div className="grid gap-6">
-                  {/* Privacy Policy */}
-                  <div className="rounded-2xl border border-gray-200 p-5 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <p className="font-bold text-gray-900 text-sm">개인정보 수집 및 이용 동의 (필수)</p>
-                      <label className="flex items-center gap-2 text-xs text-gray-500">
-                        <input {...register('terms.privacy.required')} type="checkbox" className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                        필수 동의 항목으로 설정
-                      </label>
-                    </div>
-                    <Field label="약관 제목">
-                      <input {...register('terms.privacy.title')} type="text" className={inputClassName} placeholder="예: [필수] 개인정보 수집 및 이용 동의" />
-                    </Field>
-                    <Field label="약관 내용">
-                      <textarea {...register('terms.privacy.content')} rows={5} className={textareaClassName} placeholder="약관 내용을 입력해 주세요." />
-                    </Field>
-                  </div>
-
-                  {/* Third Party Consent */}
-                  <div className="rounded-2xl border border-gray-200 p-5 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <p className="font-bold text-gray-900 text-sm">개인정보 제3자 제공 동의 (필수)</p>
-                      <label className="flex items-center gap-2 text-xs text-gray-500">
-                        <input {...register('terms.thirdParty.required')} type="checkbox" className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                        필수 동의 항목으로 설정
-                      </label>
-                    </div>
-                    <Field label="약관 제목">
-                      <input {...register('terms.thirdParty.title')} type="text" className={inputClassName} placeholder="예: [필수] 개인정보 제3자 제공 동의" />
-                    </Field>
-                    <Field label="약관 내용">
-                      <textarea {...register('terms.thirdParty.content')} rows={5} className={textareaClassName} placeholder="약관 내용을 입력해 주세요." />
-                    </Field>
-                  </div>
-
-                  {/* SMS Consent */}
-                  <div className="rounded-2xl border border-gray-200 p-5 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <p className="font-bold text-gray-900 text-sm">알림톡 및 문자 수신 동의 (필수 어뷰징 주의)</p>
-                      <label className="flex items-center gap-2 text-xs text-gray-500">
-                        <input {...register('terms.sms.required')} type="checkbox" className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                        필수 동의 항목으로 설정
-                      </label>
-                    </div>
-                    <Field label="약관 제목">
-                      <input {...register('terms.sms.title')} type="text" className={inputClassName} placeholder="예: [필수] 알림톡 및 문자 수신 동의" />
-                    </Field>
-                    <Field label="약관 내용">
-                      <textarea {...register('terms.sms.content')} rows={5} className={textareaClassName} placeholder="약관 내용을 입력해 주세요." />
-                    </Field>
-                  </div>
+                <div className="grid gap-6 md:grid-cols-2">
+                  <Field label="행사명"><input {...register('name', { required: true })} type="text" className={inputClassName} /></Field>
+                  <Field label="로고 URL"><input {...register('logoUrl')} type="url" className={inputClassName} /></Field>
+                  <Field label="1차 오픈 시간"><input {...register('admissionRounds.0.openDateTime', { required: true })} type="datetime-local" className={inputClassName} /></Field>
+                  <Field label="2차 오픈 시간"><input {...register('admissionRounds.1.openDateTime')} type="datetime-local" className={inputClassName} /></Field>
+                  <Field label="행사 일자" hint="선택 사항"><input {...register('eventDate')} type="date" className={inputClassName} /></Field>
+                  <Field label="게이트 대표 안내문">
+                    <textarea {...register('heroMessage')} rows={3} className={textareaClassName} placeholder="오픈 일시 및 입장 방법 안내..." />
+                  </Field>
                 </div>
               </section>
 
-              <section className="border-b pb-6">
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <h3 className="text-base font-semibold text-gray-900">NHN 알림톡 설정</h3>
-                    <p className="mt-1 text-sm text-gray-500">
-                      NHN 인증 정보를 입력한 뒤 템플릿 목록을 불러와 확정, 예비 접수, 승급 템플릿에 바로 적용할 수 있습니다.
-                    </p>
+              <section>
+                <h3 className="mb-6 flex items-center text-md font-bold text-gray-800">
+                  <span className="mr-3 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-xs text-emerald-600">2</span>
+                  모집 정원 및 대기열
+                </h3>
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5">
+                  <Field label="1차 정규"><input {...register('admissionRounds.0.maxCapacity', { required: true, valueAsNumber: true })} type="number" className={inputClassName} /></Field>
+                  <Field label="1차 예비"><input {...register('admissionRounds.0.waitlistCapacity', { required: true, valueAsNumber: true })} type="number" className={inputClassName} /></Field>
+                  <Field label="2차 정규"><input {...register('admissionRounds.1.maxCapacity', { valueAsNumber: true })} type="number" className={inputClassName} /></Field>
+                  <Field label="2차 예비"><input {...register('admissionRounds.1.waitlistCapacity', { valueAsNumber: true })} type="number" className={inputClassName} /></Field>
+                  <Field label="동시 작성 정원" hint="60권장"><input {...register('queueSettings.maxActiveSessions', { required: true, valueAsNumber: true })} type="number" className={inputClassName} /></Field>
+                </div>
+                <div className="mt-8 flex flex-wrap gap-4">
+                  <label className="flex items-center gap-3 rounded-2xl border-2 border-gray-100 px-6 py-4 transition-all hover:bg-gray-50">
+                    <input {...register('admissionRounds.1.enabled')} type="checkbox" className="h-5 w-5 border-2" />
+                    <span className="text-sm font-bold text-gray-700">2차 모집 활성화</span>
+                  </label>
+                  <label className="flex items-center gap-3 rounded-2xl border-2 border-gray-100 px-6 py-4 transition-all hover:bg-gray-50">
+                    <input {...register('queueSettings.enabled')} type="checkbox" className="h-5 w-5 border-2" />
+                    <span className="text-sm font-bold text-gray-700">대기열 엔진 사용</span>
+                  </label>
+                  <label className="flex items-center gap-3 rounded-2xl border-2 border-gray-100 px-6 py-4 transition-all hover:bg-gray-50">
+                    <input {...register('isActive')} type="checkbox" className="h-5 w-5 border-2" />
+                    <span className="text-sm font-bold text-gray-700">공개 페이지 활성</span>
+                  </label>
+                </div>
+              </section>
+
+              <section>
+                <h3 className="mb-6 flex items-center text-md font-bold text-gray-800">
+                  <span className="mr-3 flex h-6 w-6 items-center justify-center rounded-full bg-rose-100 text-xs text-rose-600">3</span>
+                  긴급 제어 및 세션 설정
+                </h3>
+                <div className="grid gap-6 md:grid-cols-2">
+                  <Field label="긴급 공지 메시지" hint="활성화 시 모든 사용자 게이트 상단에 노출됩니다.">
+                    <input {...register('emergencyNotice.message')} type="text" className={inputClassName} placeholder="예: 현재 접속자가 많아 지연되고 있습니다." />
+                  </Field>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Field label="작성 제한 시간 (분)" hint="기본 3분"><input {...register('sessionTimeoutSettings.activeSessionTimeoutMs', { valueAsNumber: true })} type="number" className={inputClassName} /></Field>
+                    <Field label="입장 유예 시간 (초)" hint="기본 90초"><input {...register('sessionTimeoutSettings.gracePeriodMs', { valueAsNumber: true })} type="number" className={inputClassName} /></Field>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleLoadTemplates}
-                    disabled={loadingTemplates}
-                    className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-                  >
-                    {loadingTemplates ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                    {loadingTemplates ? '템플릿 조회 중...' : '템플릿 불러오기'}
+                </div>
+                <div className="mt-6 flex flex-wrap gap-4">
+                  <label className="flex items-center gap-3 rounded-2xl border-2 border-gray-100 px-6 py-4 transition-all hover:bg-gray-50">
+                    <input {...register('emergencyNotice.enabled')} type="checkbox" className="h-5 w-5 border-2" />
+                    <span className="text-sm font-bold text-gray-700">긴급 공지 즉시 활성화</span>
+                  </label>
+                </div>
+              </section>
+
+              <section>
+                <h3 className="mb-6 flex items-center text-md font-bold text-gray-800">
+                  <span className="mr-3 flex h-6 w-6 items-center justify-center rounded-full bg-violet-100 text-xs text-violet-600">4</span>
+                  NHN 알림톡 연동
+                </h3>
+                <div className="flex gap-3 mb-6">
+                  <button type="button" onClick={handleLoadTemplates} disabled={loadingTemplates} className="rounded-2xl bg-gray-900 px-6 py-3 text-sm font-bold text-white hover:bg-gray-800 disabled:opacity-50 transition-all">
+                    {loadingTemplates ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : <Search className="h-4 w-4 mr-2" />}
+                    {loadingTemplates ? '로드 중...' : 'NHN 템플릿 로드'}
                   </button>
+                  <input {...register('alimtalkSettings.nhnAppKey')} placeholder="App Key" className="rounded-2xl border-2 border-gray-100 px-4 py-2 text-sm flex-1" />
+                  <input {...register('alimtalkSettings.nhnSecretKey')} type="password" placeholder="Secret Key" className="rounded-2xl border-2 border-gray-100 px-4 py-2 text-sm flex-1" />
                 </div>
-
-                <div className="mt-5 grid gap-4 md:grid-cols-3">
-                  <Field label="NHN App Key" hint="템플릿 조회와 연동 확인에 사용하는 App Key입니다.">
-                    <input {...register('alimtalkSettings.nhnAppKey')} type="text" className={inputClassName} />
-                  </Field>
-                  <Field label="NHN Secret Key" hint="템플릿 목록 조회 callable에서 사용됩니다.">
-                    <input {...register('alimtalkSettings.nhnSecretKey')} type="password" className={inputClassName} />
-                  </Field>
-                  <Field label="NHN Sender Key" hint="실제 발송 시 사용하는 카카오 채널 Sender Key입니다.">
-                    <input {...register('alimtalkSettings.nhnSenderKey')} type="text" className={inputClassName} />
-                  </Field>
-                </div>
-
-                {templateLoadError && (
-                  <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-                    {templateLoadError}
-                  </div>
-                )}
-                {templateLoadSuccess && (
-                  <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
-                    {templateLoadSuccess}
-                  </div>
-                )}
-
-                <div className="mt-6 grid gap-6 xl:grid-cols-3">
-                  <div className="space-y-3 rounded-2xl border border-gray-200 p-5">
-                    <div className="flex items-center gap-2 text-gray-900">
-                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                      <p className="font-semibold">확정 알림 템플릿</p>
-                    </div>
-                    <Field label="템플릿 선택">
-                      <select
-                        value={watchedSuccessTemplate}
-                        onChange={(event) => applyTemplate('success', event.target.value)}
-                        className={selectClassName}
-                      >
-                        <option value="">템플릿을 선택해 주세요</option>
-                        {templateOptions.map((item) => (
-                          <option key={`success-${item.templateCode}`} value={item.templateCode}>
-                            {item.templateName} ({item.templateCode})
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="템플릿 코드 직접 입력">
-                      <input
-                        {...register('alimtalkSettings.successTemplate')}
-                        type="text"
-                        className={inputClassName}
-                        onChange={(event) => {
-                          setValue('alimtalkSettings.successTemplate', event.target.value);
-                          setValue('alimtalkSettings.confirmTemplateCode', event.target.value);
-                        }}
-                      />
-                    </Field>
+                <div className="grid gap-8 lg:grid-cols-3">
+                  <div className="space-y-4">
+                    <p className="text-sm font-bold text-gray-700">성공 알림 (Confirmed)</p>
+                    <select value={watchedSuccessTemplate} onChange={(e) => applyTemplate('success', e.target.value)} className={selectClassName}>
+                      <option value="">템플릿 선택</option>
+                      {templateOptions.map(t => <option key={t.templateCode} value={t.templateCode}>{t.templateName}</option>)}
+                    </select>
                     <TemplatePreview template={selectedSuccessTemplate} />
                   </div>
-
-                  <div className="space-y-3 rounded-2xl border border-gray-200 p-5">
-                    <div className="flex items-center gap-2 text-gray-900">
-                      <Users className="h-4 w-4 text-amber-600" />
-                      <p className="font-semibold">예비 접수 템플릿</p>
-                    </div>
-                    <Field label="템플릿 선택">
-                      <select
-                        value={watchedWaitlistTemplate}
-                        onChange={(event) => applyTemplate('waitlist', event.target.value)}
-                        className={selectClassName}
-                      >
-                        <option value="">템플릿을 선택해 주세요</option>
-                        {templateOptions.map((item) => (
-                          <option key={`wait-${item.templateCode}`} value={item.templateCode}>
-                            {item.templateName} ({item.templateCode})
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="템플릿 코드 직접 입력">
-                      <input
-                        {...register('alimtalkSettings.waitlistTemplate')}
-                        type="text"
-                        className={inputClassName}
-                        onChange={(event) => {
-                          setValue('alimtalkSettings.waitlistTemplate', event.target.value);
-                          setValue('alimtalkSettings.waitlistTemplateCode', event.target.value);
-                        }}
-                      />
-                    </Field>
+                  <div className="space-y-4">
+                    <p className="text-sm font-bold text-gray-700">예비 알림 (Waitlisted)</p>
+                    <select value={watchedWaitlistTemplate} onChange={(e) => applyTemplate('waitlist', e.target.value)} className={selectClassName}>
+                      <option value="">템플릿 선택</option>
+                      {templateOptions.map(t => <option key={t.templateCode} value={t.templateCode}>{t.templateName}</option>)}
+                    </select>
                     <TemplatePreview template={selectedWaitlistTemplate} />
                   </div>
-
-                  <div className="space-y-3 rounded-2xl border border-gray-200 p-5">
-                    <div className="flex items-center gap-2 text-gray-900">
-                      <RefreshCw className="h-4 w-4 text-blue-600" />
-                      <p className="font-semibold">승급 템플릿</p>
-                    </div>
-                    <Field label="템플릿 선택">
-                      <select
-                        value={watchedPromoteTemplate}
-                        onChange={(event) => applyTemplate('promote', event.target.value)}
-                        className={selectClassName}
-                      >
-                        <option value="">템플릿을 선택해 주세요</option>
-                        {templateOptions.map((item) => (
-                          <option key={`promote-${item.templateCode}`} value={item.templateCode}>
-                            {item.templateName} ({item.templateCode})
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="템플릿 코드 직접 입력">
-                      <input {...register('alimtalkSettings.promoteTemplate')} type="text" className={inputClassName} />
-                    </Field>
+                  <div className="space-y-4">
+                    <p className="text-sm font-bold text-gray-700">승급 알림 (Promoted)</p>
+                    <select value={watchedPromoteTemplate} onChange={(e) => applyTemplate('promote', e.target.value)} className={selectClassName}>
+                      <option value="">템플릿 선택</option>
+                      {templateOptions.map(t => <option key={t.templateCode} value={t.templateCode}>{t.templateName}</option>)}
+                    </select>
                     <TemplatePreview template={selectedPromoteTemplate} />
                   </div>
                 </div>
               </section>
 
-              <div className="flex justify-end">
-                <button
-                  type="submit"
-                  className="flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white transition-colors hover:bg-blue-700"
-                >
-                  <Save className="h-5 w-5" />
-                  설정 저장
+              <div className="flex justify-end gap-4 pt-10 border-t">
+                <button type="submit" className="flex items-center gap-2 rounded-2xl bg-blue-600 px-10 py-4 text-lg font-black text-white hover:bg-blue-700 shadow-xl shadow-blue-100 transition-all active:scale-95">
+                  <Save className="h-6 w-6" />
+                  전체 설정 저장
                 </button>
               </div>
 
-              {/* Danger Zone */}
-              <div className="mt-12 rounded-2xl border border-rose-100 bg-rose-50/30 p-6">
-                <h4 className="flex items-center gap-2 text-sm font-bold text-rose-600">
-                  <AlertTriangle className="h-4 w-4" />
-                  위험 구역 (Danger Zone)
-                </h4>
-                <div className="mt-3 flex flex-col justify-between gap-4 md:flex-row md:items-center">
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">학교 데이터 전체 초기화</p>
-                    <p className="text-xs text-gray-500">모든 신청 내역, 대기열, 예약 세션, 통계를 0으로 리셋합니다. 복구할 수 없습니다.</p>
+              {adminProfile?.role === 'MASTER' && (
+                <div className="mt-20 rounded-3xl border-2 border-rose-100 bg-rose-50/20 p-8">
+                  <h4 className="flex items-center gap-2 text-rose-600 font-bold mb-4">
+                    <AlertTriangle className="h-5 w-5" /> MASTER ONLY: DANGER ZONE
+                  </h4>
+                  <div className="flex items-center justify-between bg-white p-6 rounded-2xl border border-rose-100 shadow-sm">
+                    <div>
+                      <p className="font-bold text-gray-900">학교 데이터 전체 초기화</p>
+                      <p className="text-xs text-gray-400 mt-1">모집 내역, 큐, 감사로그 등 모든 서브컬렉션을 삭제합니다. (복구 불가)</p>
+                    </div>
+                    <button type="button" onClick={handleFullReset} disabled={resetting} className="rounded-2xl bg-rose-600 px-6 py-3 font-bold text-white hover:bg-rose-700 disabled:opacity-50 transition-all">
+                      {resetting ? '초기화 진행 중...' : '데이터 전면 삭제'}
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleFullReset}
-                    disabled={resetting}
-                    className="rounded-xl border border-rose-200 bg-white px-5 py-2.5 text-sm font-bold text-rose-600 transition-colors hover:bg-rose-50 disabled:opacity-50"
-                  >
-                    {resetting ? '초기화 중...' : '전체 데이터 초기화'}
-                  </button>
                 </div>
-              </div>
+              )}
             </form>
           </div>
         )}
 
         {activeTab === 'reservations' && (
-          <div className="rounded-2xl bg-white p-6 shadow-sm">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="flex items-center text-lg font-semibold text-gray-900">
-                <Clock className="mr-2 h-5 w-5 text-blue-600" />
-                실시간 예약 현황
+          <div className="rounded-3xl bg-white p-8 shadow-xl border border-gray-100">
+            <div className="mb-8 flex items-center justify-between">
+              <h2 className="flex items-center text-xl font-bold text-gray-900">
+                <Clock className="mr-3 h-6 w-6 text-blue-600" />
+                실시간 세션 현황
               </h2>
-              <button
-                onClick={() => void loadReservations()}
-                className="flex items-center gap-2 rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium transition-colors hover:bg-gray-200"
-              >
-                <RefreshCw className="h-4 w-4" />
-                새로고침
+              <button onClick={() => loadReservations()} className="flex items-center gap-2 rounded-2xl bg-gray-100 px-6 py-3 text-sm font-bold hover:bg-gray-200 transition-all">
+                <RefreshCw className="h-4 w-4" /> 새로고침
               </button>
             </div>
-
+            
             {loadingReservations ? (
-              <div className="py-8 text-center text-gray-500">
-                <RefreshCw className="mx-auto mb-2 h-8 w-8 animate-spin text-blue-600" />
-                예약 현황을 불러오는 중입니다.
-              </div>
+              <div className="py-20 text-center"><RefreshCw className="mx-auto h-12 w-12 animate-spin text-blue-100" /></div>
             ) : reservations.length === 0 ? (
-              <div className="py-8 text-center text-gray-500">
-                <AlertTriangle className="mx-auto mb-2 h-10 w-10 text-gray-400" />
-                현재 예약 세션이 없습니다.
-              </div>
+              <div className="py-20 text-center text-gray-300 font-bold">활성화된 세션이 없습니다.</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
+              <div className="overflow-hidden rounded-2xl border border-gray-100">
+                <table className="min-w-full divide-y divide-gray-100">
                   <thead className="bg-gray-50">
-                    <tr>
-                      {['상태', '사용자 ID', '생성 시간', '만료 시간', '남은 시간'].map((label) => (
-                        <th key={label} className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                          {label}
-                        </th>
-                      ))}
-                    </tr>
+                    <tr>{['상태', 'ID 하시', '개시 시간', '남은 시간'].map(h => <th key={h} className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">{h}</th>)}</tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-200 bg-white">
-                    {reservations.map((reservation) => {
-                      const timeLeft = Math.max(0, reservation.expiresAt - Date.now());
-                      const minutesLeft = Math.floor(timeLeft / 60000);
-
-                      return (
-                        <tr key={reservation.id} className="hover:bg-gray-50">
-                          <td className="whitespace-nowrap px-6 py-4">
-                              <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${getReservationStatusColor(reservation.status)}`}>
-                                {reservation.status === 'reserved' && '작성 중'}
-                                {reservation.status === 'processing' && '제출 처리 중'}
-                                {reservation.status === 'confirmed' && '확정'}
-                                {reservation.status === 'expired' && '만료'}
-                              </span>
-                          </td>
-                          <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{reservation.userId}</td>
-                          <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{formatTime(reservation.createdAt)}</td>
-                          <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{formatTime(reservation.expiresAt)}</td>
-                          <td className="whitespace-nowrap px-6 py-4 text-sm">
-                            {reservation.status === 'reserved' ? (
-                              <span
-                                className={`font-semibold ${
-                                  minutesLeft <= 1 ? 'text-rose-600' : minutesLeft <= 3 ? 'text-amber-600' : 'text-emerald-600'
-                                }`}
-                              >
-                                {minutesLeft}분 남음
-                              </span>
-                            ) : (
-                              <span className="text-gray-400">-</span>
-                            )}
-                          </td>
+                  <tbody className="divide-y divide-gray-50 bg-white">
+                    {reservations.map(res => {
+                       const minutesLeft = Math.floor(Math.max(0, (res.expiresAt || 0) - Date.now()) / 60000);
+                       return (
+                        <tr key={res.id} className="hover:bg-gray-50/50 transition-colors">
+                          <td className="px-6 py-4"><span className={`inline-flex rounded-full px-3 py-1 text-[10px] font-black uppercase ${getReservationStatusColor(res.status)}`}>{res.status}</span></td>
+                          <td className="px-6 py-4 text-sm font-mono text-gray-500">{(res.userId || '').slice(0, 10)}...</td>
+                          <td className="px-6 py-4 text-sm text-gray-400">{formatTime(res.createdAt || Date.now())}</td>
+                          <td className="px-6 py-4 text-sm font-bold">{res.status === 'reserved' ? <span className={minutesLeft <= 1 ? 'text-rose-500' : 'text-emerald-500'}>{minutesLeft}분</span> : '-'}</td>
                         </tr>
-                      );
+                       );
                     })}
                   </tbody>
                 </table>
@@ -1340,10 +1109,10 @@ export default function SchoolSettings() {
         )}
 
         {activeTab === 'registrations' && (
-          <div className="rounded-2xl bg-white p-6 shadow-sm">
-            <h2 className="mb-4 flex items-center text-lg font-semibold text-gray-900">
-              <Users className="mr-2 h-5 w-5 text-blue-600" />
-              등록 현황
+          <div className="rounded-3xl bg-white p-8 shadow-xl border border-gray-100">
+            <h2 className="mb-6 flex items-center text-xl font-bold text-gray-900">
+              <Users className="mr-3 h-6 w-6 text-blue-600" />
+              최종 등록 리스트
             </h2>
             <RegistrationList schoolId={schoolId!} />
           </div>
@@ -1352,4 +1121,3 @@ export default function SchoolSettings() {
     </div>
   );
 }
-
