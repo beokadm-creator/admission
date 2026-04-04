@@ -218,7 +218,7 @@ export default function SmartQueueGate() {
   const isOpen = !!openTimeMs && now >= openTimeMs;
   const openDateLabel = formatDateLabel(openTimeMs);
   const countdownParts = getCountdownParts(Math.max(0, openTimeMs - now));
-  const gateHeadline = '2028학년도 입학 접수를 위한 대기열 안내와 신청 절차를 이곳에서 확인하실 수 있습니다.';
+  const gateHeadline = '오픈 시간에 버튼을 눌러 대기번호를 받고, 순서가 되면 신청서를 작성합니다.';
   const programInfo =
     schoolConfig?.programInfo?.trim() ||
     '행사 개요, 준비물, 유의사항은 아래 프로그램 안내 영역에서 바로 확인하실 수 있습니다.';
@@ -250,16 +250,16 @@ export default function SmartQueueGate() {
       return errorMessage;
     }
     if (errorMessage.includes('FULL_CAPACITY')) {
-      return '모집 정원과 예비 정원이 모두 마감되었습니다. 추가 모집이 있을 경우 별도로 안내해 드리겠습니다.';
+      return '모집 정원과 예비 정원이 모두 마감되었습니다.';
     }
     if (errorMessage.includes('운영 상한') || errorMessage.includes('정원이 없습니다') || errorMessage.includes('이용 가능한 접수 인원이 없습니다')) {
-      return '현재 대기열이 마감되었습니다. 추가 모집이 있을 경우 별도로 안내해 드리겠습니다.';
+      return '현재 대기열이 마감되었습니다.';
     }
     if (errorMessage.includes('요청이 너무 빈번') || errorMessage.includes('초 후에 다시 시도')) {
       return errorMessage;
     }
 
-    return '접속이 많아 처리가 지연되고 있습니다. 화면을 닫지 말고 잠시만 기다려 주세요.';
+    return '접속이 많아 처리가 지연되고 있습니다. 잠시 후 다시 시도해 주세요.';
   }, [errorMessage]);
 
   useEffect(() => {
@@ -455,11 +455,11 @@ export default function SmartQueueGate() {
   const buttonStatusMessage = canEnter
     ? '지금 바로 신청서를 작성할 수 있습니다. 3분 안에 작성과 제출을 완료해 주세요.'
     : isNearTurnWaiting
-      ? '앞선 대기자는 없지만 현재 작성 중인 인원이 있어, 자리가 비는 즉시 자동으로 이동합니다. 이 상태에서는 다른 페이지로 이동하지 말고 현재 화면을 유지해 주세요.'
+      ? '곧 신청서로 이동됩니다. 이 화면을 유지해 주세요.'
     : suppressCompletedAutoEntry
       ? recentCompletion?.status === 'waitlisted'
-        ? '이 기기에서 같은 정보로 예비 접수가 이미 완료되었습니다. 조회 페이지에서 결과를 다시 확인해 주세요.'
-        : '이 기기에서 같은 정보로 신청이 이미 완료되었습니다. 다시 작성할 필요 없이 조회 페이지에서 결과를 확인해 주세요.'
+        ? '예비 접수가 완료되었습니다. 조회 페이지에서 결과를 확인해 주세요.'
+        : '신청이 완료되었습니다. 조회 페이지에서 결과를 확인해 주세요.'
     : myEntry?.status === 'expired'
       ? '작성 가능 시간이 만료되었습니다. 다시 신청하려면 대기열에 다시 입장해 번호를 받아야 합니다.'
       : joinCooldownActive
@@ -542,11 +542,11 @@ export default function SmartQueueGate() {
 
   const myStatusMessage = useMemo(() => {
     if (!isOpen) {
-      return `현재는 ${selectedRound?.label || '선택한 차수'} 오픈 전입니다. 카드에서 시작 시간과 접수 상태를 먼저 확인해 주세요.`;
+      return `${selectedRound?.label || '선택한 차수'} 접수는 아직 시작되지 않았습니다. 위 시작 시각을 확인해 주세요.`;
     }
 
     if (myEntry?.status === 'expired') {
-      return '이전 작성 기회가 만료되었습니다. 다시 신청하려면 대기열에 다시 입장해 번호를 받아야 합니다.';
+      return '작성 시간이 초과되었습니다. 다시 신청하려면 대기열에서 새 번호를 받아야 합니다.';
     }
 
     if (myNumber === null) {
@@ -556,7 +556,7 @@ export default function SmartQueueGate() {
       if (remainingCapacity <= 0) {
         return '현재 모집 정원과 예비 정원이 모두 마감되었습니다.';
       }
-      return '버튼을 누르면 서버가 즉시 공식 대기번호를 발급하고, 번호 순서대로 신청 기회가 열립니다.';
+      return '버튼을 누르면 대기번호가 발급되며, 번호 순서에 따라 신청서 작성이 가능합니다.';
     }
 
     if (canEnter) {
@@ -564,11 +564,11 @@ export default function SmartQueueGate() {
     }
 
     if (remainingCapacity <= 0) {
-      return '현재 모집 정원은 모두 소진되었고, 남은 순번은 예비 등록 가능 여부에 따라 안내됩니다.';
+      return '확정 접수는 마감되었습니다. 남은 대기 순번은 예비로 배정됩니다.';
     }
 
     if (queueState.availableCapacity <= 0) {
-      return '현재 이용 가능한 신청 인원이 모두 찼습니다. 잠시 후 다시 자동으로 입장 기회를 확인합니다.';
+      return '신청서 작성 인원이 가득 찼습니다. 자리가 생기면 자동으로 입장됩니다.';
     }
 
     if (waitingAhead === 0) {
@@ -887,13 +887,13 @@ export default function SmartQueueGate() {
               icon={<Users className="h-5 w-5" />}
               label='발급된 번호'
               value={queueState.lastAssignedNumber}
-              helper={`최대 발급 번호 / 마감 ${queueJoinLimit.toLocaleString()}명`}
+              helper={`선착순 ${queueJoinLimit.toLocaleString()}번까지 발급`}
             />
             <MetricCard
               icon={<Ticket className="h-5 w-5" />}
-              label='현재 입장 번호'
+              label='현재 호출 번호'
               value={queueState.currentNumber}
-              helper='내 앞 대기 인원'
+              helper='신청서 작성이 열린 번호'
             />
             <MetricCard
               icon={<Clock3 className="h-5 w-5" />}
@@ -933,7 +933,7 @@ export default function SmartQueueGate() {
               <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
                 <p className="text-sm font-bold text-gray-900">입장 확인 정보</p>
                 <p className="mt-2 text-sm leading-relaxed text-gray-600">
-                  같은 이름과 휴대폰 번호로는 한 번에 하나의 대기열만 유지됩니다. 다른 기기에서 동시에 번호를 받는 문제를 막기 위한 절차입니다.
+                  같은 이름과 휴대폰 번호로는 대기번호를 하나만 받을 수 있습니다.
                 </p>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <input
@@ -1004,9 +1004,11 @@ export default function SmartQueueGate() {
             <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-4">
               <p className="text-sm font-bold text-gray-900">이용 안내</p>
               <div className="mt-3 space-y-2 text-sm leading-relaxed text-gray-600">
-                <p>접수는 {openDateLabel}에 시작됩니다. 오픈 전에는 버튼이 비활성화됩니다.</p>
-                <p>오픈 시간에 나타나는 버튼을 누르면 대기번호가 발급됩니다.</p>
-                <p>대기 접수는 상한 {queueJoinLimit.toLocaleString()}명에서 마감됩니다.</p>
+                <p>접수는 {openDateLabel}에 시작됩니다.</p>
+                <p>오픈 시간에 버튼을 누르면 대기번호가 발급됩니다.</p>
+                <p>대기번호는 선착순 {queueJoinLimit.toLocaleString()}번까지만 발급됩니다.</p>
+                <p className="font-medium text-gray-700">대기번호를 받았더라도 정원이 소진되면 신청서를 작성하지 못할 수 있습니다.</p>
+                <p className="font-medium text-gray-700">신청서를 작성하더라도 번호 순서에 따라 확정 또는 예비로 결과가 나뉩니다.</p>
                 <p>1차에서 신청하지 못한 경우 2차 오픈 시각에 다시 대기열에 입장할 수 있습니다.</p>
               </div>
             </div>
@@ -1025,11 +1027,21 @@ export default function SmartQueueGate() {
             </section>
 
             {friendlyErrorMessage && (
-              <p className={`mt-4 text-sm font-semibold ${
-                friendlyErrorMessage.includes('마감') ? 'text-gray-600' :
-                friendlyErrorMessage.includes('기다려') || friendlyErrorMessage.includes('다시 시도') ? 'text-amber-600' :
-                'text-rose-600'
-              }`}>{friendlyErrorMessage}</p>
+              friendlyErrorMessage.includes('마감') ? (
+                <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                  <p className="text-sm font-semibold text-gray-600">{friendlyErrorMessage}</p>
+                  <Link
+                    to={`/${schoolId}/lookup`}
+                    className="mt-3 flex min-h-[44px] w-full items-center justify-center rounded-xl border border-gray-300 bg-white px-4 text-sm font-bold text-gray-700 transition hover:bg-gray-50"
+                  >
+                    신청 내역 조회하기 <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </div>
+              ) : (
+                <p className={`mt-4 text-sm font-semibold ${
+                  friendlyErrorMessage.includes('다시 시도') ? 'text-amber-600' : 'text-rose-600'
+                }`}>{friendlyErrorMessage}</p>
+              )
             )}
           </section>
 
@@ -1050,26 +1062,26 @@ export default function SmartQueueGate() {
                 <FlowCard
                   tone="indigo"
                   step="1"
-                  title="오픈 후 대기번호 발급"
-                  body="오픈 시각에 활성화되는 버튼을 누르시면 공식 대기번호를 발급받게 됩니다."
+                  title="대기번호 발급"
+                  body={`오픈 시각에 버튼을 눌러 대기번호를 받습니다. 번호가 있어도 정원(${queueState.totalCapacity.toLocaleString()}명)이 소진되면 신청서를 작성하지 못할 수 있습니다.`}
                 />
                 <FlowCard
                   tone="amber"
                   step="2"
                   title="순차 입장"
-                  body={`동시 작성 가능 인원 ${maxActiveSessions}명을 유지하며, 제출 또는 만료로 자리가 생기면 다음 순번이 자동으로 열립니다.`}
+                  body={`동시에 최대 ${maxActiveSessions}명이 작성할 수 있습니다. 자리가 생겨야 다음 순번의 입장이 열립니다.`}
                 />
                 <FlowCard
                   tone="emerald"
                   step="3"
-                  title="3분 이내 입력 완료"
-                  body="입장 후 3분 이내에 제출하셔야 하며, 기한이 지나면 다시 대기열에 입장하셔야 합니다."
+                  title="3분 이내 제출"
+                  body="입장 후 3분 이내에 제출하셔야 합니다. 시간이 지나면 기회가 소멸되고 다시 대기번호를 받아야 합니다."
                 />
                 <FlowCard
                   tone="rose"
                   step="4"
-                  title="확정 / 예비 결과 배정"
-                  body="대기번호와 제출 순서에 따라 확정 또는 예비 결과가 배정되며, 예비는 별도 안내를 드립니다."
+                  title="확정 / 예비 결과"
+                  body="번호 순서에 따라 확정 또는 예비로 결과가 나뉩니다. 예비 결과는 담당자가 개별 연락드립니다."
                 />
               </div>
             </section>

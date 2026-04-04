@@ -334,7 +334,7 @@ export default function RegisterPage() {
         setSoftNoticeTone('error');
         setSoftNotice(
           getFirebaseError(error)?.message === 'FULL_CAPACITY'
-            ? '모집 정원과 예비 정원이 모두 마감되었습니다. 추가 모집이 있을 경우 별도로 안내해 드리겠습니다.'
+            ? '모집 정원과 예비 정원이 모두 마감되었습니다.'
             : getFirebaseError(error)?.message || '신청을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.'
         );
       }
