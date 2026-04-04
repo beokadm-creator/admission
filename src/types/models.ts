@@ -64,7 +64,6 @@ export interface SchoolConfig {
   };
   buttonSettings: {
     showLookupButton: boolean;
-    showCancelButton: boolean;
   };
   serviceAccess?: {
     enabled: boolean;

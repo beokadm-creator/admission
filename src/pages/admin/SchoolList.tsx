@@ -124,8 +124,7 @@ export default function SchoolList() {
           collectStudentId: true,
         },
         buttonSettings: {
-          showLookupButton: true,
-          showCancelButton: true
+          showLookupButton: true
         },
         alimtalkSettings: {
           nhnAppKey: '',

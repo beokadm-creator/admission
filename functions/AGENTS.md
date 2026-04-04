@@ -20,7 +20,7 @@ optional-for:
 ## Essential (Post-Compact)
 
 - 대기열 로직은 `functions/src/firestoreQueue.ts`가 우선이다.
-- `functions/src/index.ts`는 export, 조회/취소, 알림 보조 로직을 가진다.
+- `functions/src/index.ts`는 export, 조회, 알림 보조 로직을 가진다.
 - AlimTalk 자격 증명은 Firebase config와 `schools/{schoolId}/privateSettings/alimtalk`를 함께 본다.
 - 백엔드 변경 시 권한, idempotency, rate limit, graceful degradation을 함께 검토한다.
 
@@ -32,7 +32,7 @@ optional-for:
 - 제출 확정: `confirmReservation`
 - 세션 만료: `forceExpireSession`, `cleanupExpiredReservations`
 - 운영 보조: `autoAdvanceQueue`, `runAdminQueueAction`, `resetSchoolState`
-- 조회/취소: `lookupRegistration`, `cancelRegistration`
+- 조회: `lookupRegistration`
 
 ## Stable Conventions
 

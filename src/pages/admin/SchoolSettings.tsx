@@ -273,8 +273,7 @@ export default function SchoolSettings() {
         waitlistTemplateCode: ''
       },
       buttonSettings: {
-        showLookupButton: true,
-        showCancelButton: true
+        showLookupButton: true
       },
       terms: {
         privacy: { title: '', content: '', required: true },
@@ -432,7 +431,6 @@ export default function SchoolSettings() {
           data.alimtalkSettings?.waitlistTemplateCode || data.alimtalkSettings?.waitlistTemplate || ''
         );
         setValue('buttonSettings.showLookupButton', data.buttonSettings?.showLookupButton !== false);
-        setValue('buttonSettings.showCancelButton', data.buttonSettings?.showCancelButton !== false);
         setValue('isActive', data.isActive !== false);
         setValue('programImageUrl', data.programImageUrl || '');
         setValue('formFields.gradeOptionsText', (data.formFields?.gradeOptions || []).join('\n'));
@@ -1027,14 +1025,6 @@ export default function SchoolSettings() {
                         className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
                       <span className="text-sm text-gray-700">조회 버튼 노출</span>
-                    </label>
-                    <label className="flex items-center gap-3">
-                      <input
-                        {...register('buttonSettings.showCancelButton')}
-                        type="checkbox"
-                        className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      <span className="text-sm text-gray-700">취소 버튼 노출</span>
                     </label>
                   </div>
                 </div>

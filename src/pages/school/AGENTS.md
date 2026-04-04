@@ -31,7 +31,7 @@ optional-for:
 - `Queue.tsx`: 대기 상태 화면
 - `Register.tsx`: 신청 폼
 - `Complete.tsx`: 제출 완료 화면
-- `Lookup.tsx`: 조회 및 취소
+- `Lookup.tsx`: 조회
 - `src/components/SmartQueueGate.tsx`: 공개 신청 진입과 상태 안내
 
 ## Stable Rules

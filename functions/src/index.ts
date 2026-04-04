@@ -269,11 +269,22 @@ export const getAlimtalkTemplates = functionsV1.https.onCall(async (request: any
 });
 
 export const lookupRegistration = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
-  const { data } = sharedNormalizeCallableRequest(request, legacyContext);
+  const { data, rawRequest } = sharedNormalizeCallableRequest(request, legacyContext);
   const { schoolId, studentName, phoneLast4 } = data?.data || data;
 
   if (!schoolId || !studentName || !phoneLast4) {
     throw new functions.https.HttpsError('invalid-argument', '필수 정보가 누락되었습니다.');
+  }
+
+  const lookupRateLimit = await sharedCheckRateLimit(
+    admin.firestore(),
+    sharedGetRateLimitIdentifier(rawRequest, `lookupRegistration_${schoolId}_${String(phoneLast4)}`),
+    10,
+    60000
+  );
+
+  if (!lookupRateLimit.allowed) {
+    throw new functions.https.HttpsError('resource-exhausted', 'Too many lookup requests. Please try again shortly.');
   }
 
   const snapshot = await admin
@@ -304,100 +315,6 @@ export const lookupRegistration = functionsV1.https.onCall(async (request: any, 
       updatedAt: reg.updatedAt
     }
   };
-});
-
-export const cancelRegistration = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
-  const { data, rawRequest } = sharedNormalizeCallableRequest(request, legacyContext);
-  const { schoolId, registrationId, studentName, phoneLast4 } = data?.data || data;
-  const cancelRateLimit = await sharedCheckRateLimit(
-    admin.firestore(),
-    sharedGetRateLimitIdentifier(rawRequest, `cancelRegistration_${schoolId}_${registrationId}_${String(phoneLast4)}`),
-    5,
-    60000
-  );
-
-  if (!cancelRateLimit.allowed) {
-    throw new functions.https.HttpsError('resource-exhausted', `요청이 너무 빈번합니다. ${cancelRateLimit.retryAfter}초 후에 다시 시도해 주세요.`);
-  }
-
-  if (!schoolId || !registrationId || !studentName || !phoneLast4) {
-    throw new functions.https.HttpsError('invalid-argument', '필수 정보가 누락되었습니다.');
-  }
-
-  if (typeof phoneLast4 !== 'string' || !/^\d{4}$/.test(phoneLast4)) {
-    throw new functions.https.HttpsError('invalid-argument', '전화번호 뒤 4자리가 올바르지 않습니다.');
-  }
-
-  const regRef = admin.firestore().doc(`schools/${schoolId}/registrations/${registrationId}`);
-  const schoolRef = admin.firestore().doc(`schools/${schoolId}`);
-
-  await admin.firestore().runTransaction(async (transaction) => {
-    const [regDoc, schoolDoc] = await Promise.all([
-      transaction.get(regRef),
-      transaction.get(schoolRef)
-    ]);
-
-    if (!regDoc.exists) {
-      throw new functions.https.HttpsError('not-found', '신청 내역을 찾을 수 없습니다.');
-    }
-
-    if (!schoolDoc.exists) {
-      throw new functions.https.HttpsError('not-found', '학교 정보를 찾을 수 없습니다.');
-    }
-
-    const reg = regDoc.data()!;
-    const schoolData = schoolDoc.data()!;
-    const roundMeta = getSchoolRoundCapacity(schoolData, reg.admissionRoundId);
-    const queueStateRef = admin.firestore().doc(`schools/${schoolId}/queueState/${roundMeta.roundId}`);
-    const queueStateDoc = await transaction.get(queueStateRef);
-    const queueState = queueStateDoc.exists ? queueStateDoc.data() || {} : {};
-    const currentConfirmed = Number(schoolData.stats?.confirmedCount || 0);
-    const currentWaitlisted = Number(schoolData.stats?.waitlistedCount || 0);
-    const activeReservationCount = Number(queueState.activeReservationCount || 0);
-    const totalCapacity = Number(queueState.totalCapacity || roundMeta.totalCapacity);
-
-    if (reg.studentName !== studentName.trim() || reg.phoneLast4 !== phoneLast4) {
-      throw new functions.https.HttpsError('permission-denied', '본인 확인에 실패했습니다.');
-    }
-
-    if (reg.status === 'canceled') {
-      throw new functions.https.HttpsError('failed-precondition', '이미 취소된 신청입니다.');
-    }
-
-    const prevStatus = reg.status as 'confirmed' | 'waitlisted';
-    const confirmedCount = Math.max(0, currentConfirmed - (prevStatus === 'confirmed' ? 1 : 0));
-    const waitlistedCount = Math.max(0, currentWaitlisted - (prevStatus === 'waitlisted' ? 1 : 0));
-    const updatedAt = Date.now();
-
-    transaction.update(regRef, {
-      status: 'canceled',
-      updatedAt,
-      cancellationReason: 'user_requested'
-    });
-    if (reg.queueIdentityHash && roundMeta.roundId) {
-      transaction.delete(
-        admin.firestore().doc(`schools/${schoolId}/queueIdentityLocks/${roundMeta.roundId}_${reg.queueIdentityHash}`)
-      );
-    }
-
-    transaction.set(schoolRef, {
-      stats: {
-        confirmedCount,
-        waitlistedCount
-      },
-      updatedAt
-    }, { merge: true });
-
-    transaction.set(queueStateRef, {
-      confirmedCount,
-      waitlistedCount,
-      totalCapacity,
-      availableCapacity: Math.max(0, totalCapacity - confirmedCount - waitlistedCount - activeReservationCount),
-      updatedAt
-    }, { merge: true });
-  });
-
-  return { success: true };
 });
 
 export const syncSchoolSlots = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {

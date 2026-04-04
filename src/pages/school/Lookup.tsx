@@ -37,7 +37,6 @@ export default function LookupPage() {
   const [result, setResult] = useState<RegistrationResult | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [canceling, setCanceling] = useState(false);
   const [serviceLoading, setServiceLoading] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [feedbackTone, setFeedbackTone] = useState<'success' | 'error'>('success');
@@ -76,39 +75,6 @@ export default function LookupPage() {
       }
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleCancel = async () => {
-    if (!result || !schoolConfig) return;
-
-    const confirmed = window.confirm(
-      '정말로 신청을 취소하시겠습니까?\n취소 후에는 되돌릴 수 없으며, 다음 대기자에게 기회가 양보됩니다.'
-    );
-    if (!confirmed) return;
-
-    setCanceling(true);
-    try {
-      const cancelFn = httpsCallable<
-        { schoolId: string; registrationId: string; studentName: string; phoneLast4: string },
-        { success?: boolean }
-      >(functions, 'cancelRegistration');
-      await cancelFn({
-        schoolId: schoolConfig.id,
-        registrationId: result.id,
-        studentName: applicantName.trim(),
-        phoneLast4: phoneLast4.trim()
-      });
-
-      setResult((previous) => (previous ? { ...previous, status: 'canceled' } : null));
-      setFeedbackTone('success');
-      setFeedbackMessage('신청이 정상적으로 취소되었습니다.');
-    } catch (cancelError: unknown) {
-      console.error(cancelError);
-      setFeedbackTone('error');
-      setFeedbackMessage(getErrorDetails(cancelError)?.message || '취소 처리 중 연결이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.');
-    } finally {
-      setCanceling(false);
     }
   };
 
@@ -291,23 +257,6 @@ export default function LookupPage() {
                 </div>
               )}
             </dl>
-
-            {schoolConfig.buttonSettings.showCancelButton &&
-              (result.status === 'confirmed' || result.status === 'waitlisted') && (
-                <div className="mt-8 border-t border-gray-50 pt-6">
-                  <button
-                    onClick={handleCancel}
-                    disabled={canceling}
-                    className="w-full min-h-[56px] rounded-md border border-gray-200 bg-white py-3.5 text-base font-bold text-gray-500 transition-all hover:border-red-100 hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {canceling ? '처리 중입니다...' : '신청 내역 취소'}
-                  </button>
-                  <p className="mt-3 flex items-center justify-center text-center text-[13px] font-bold text-gray-400 uppercase tracking-tighter">
-                    <AlertCircle className="mr-1 h-3.5 w-3.5" />
-                    취소 처리 시 해당 대기 순번은 영구적으로 소멸됩니다.
-                  </p>
-                </div>
-              )}
 
             {result.status === 'confirmed' && schoolConfig.serviceAccess?.enabled === true && (
               <div className="mt-4 rounded-lg border border-snu-blue/10 bg-snu-blue/5 p-5">
