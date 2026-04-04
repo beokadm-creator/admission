@@ -567,6 +567,7 @@ export default function SchoolSettings() {
     try {
       const fetchTemplates = httpsCallable(functions, 'getAlimtalkTemplates');
       const response: any = await fetchTemplates({
+        schoolId,
         appKey: watchedNhnAppKey.trim(),
         secretKey: watchedNhnSecretKey.trim()
       });
