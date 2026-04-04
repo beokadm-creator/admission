@@ -69,6 +69,7 @@ export interface SchoolConfig {
   };
   serviceAccess?: {
     enabled: boolean;
+    serviceUrl?: string;
     buttonLabel?: string;
     description?: string;
   };

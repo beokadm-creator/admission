@@ -276,6 +276,12 @@ export default function SchoolSettings() {
       buttonSettings: {
         showLookupButton: true
       },
+      serviceAccess: {
+        enabled: false,
+        serviceUrl: '',
+        buttonLabel: '',
+        description: ''
+      },
       terms: {
         privacy: { title: '', content: '', required: true },
         thirdParty: { title: '', content: '', required: true },
@@ -423,6 +429,10 @@ export default function SchoolSettings() {
         );
         setValue('alimtalkSettings.promoteTemplate', data.alimtalkSettings?.promoteTemplate || '');
         setValue('buttonSettings.showLookupButton', data.buttonSettings?.showLookupButton !== false);
+        setValue('serviceAccess.enabled', !!data.serviceAccess?.enabled);
+        setValue('serviceAccess.serviceUrl', data.serviceAccess?.serviceUrl || '');
+        setValue('serviceAccess.buttonLabel', data.serviceAccess?.buttonLabel || '');
+        setValue('serviceAccess.description', data.serviceAccess?.description || '');
         setValue('isActive', data.isActive !== false);
         setValue('programImageUrl', data.programImageUrl || '');
         setValue('formFields.gradeOptionsText', (data.formFields?.gradeOptions || []).join('\n'));
@@ -613,6 +623,12 @@ export default function SchoolSettings() {
         programInfo: programCopy,
         programImageUrl: data.programImageUrl || '',
         popupContent: data.popupContent || '',
+        serviceAccess: {
+          enabled: !!data.serviceAccess?.enabled,
+          serviceUrl: data.serviceAccess?.serviceUrl?.trim() || '',
+          buttonLabel: data.serviceAccess?.buttonLabel?.trim() || '',
+          description: data.serviceAccess?.description?.trim() || ''
+        },
         queueSettings: {
           enabled: data.queueSettings?.enabled !== false,
           maxActiveSessions
@@ -1193,6 +1209,55 @@ export default function SchoolSettings() {
                       <textarea {...register('terms.sms.content')} rows={5} className={textareaClassName} placeholder="약관 내용을 입력해 주세요." />
                     </Field>
                   </div>
+                </div>
+              </section>
+
+              <section className="border-b pb-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-base font-semibold text-gray-900">확정자 참가 안내 링크</h3>
+                    <p className="mt-1 text-sm text-gray-500">
+                      신청 완료(확정) 참가자가 조회 페이지에서 버튼을 눌러 이동할 URL을 설정합니다.
+                      Zoom 링크, 사전 자료, 안내 페이지 등에 활용하세요.
+                    </p>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer select-none shrink-0">
+                    <input
+                      {...register('serviceAccess.enabled')}
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm font-medium text-gray-700">기능 활성화</span>
+                  </label>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field
+                    label="참가 안내 URL"
+                    hint="확정 참가자가 이동할 URL입니다. 비워두면 버튼이 작동하지 않습니다."
+                  >
+                    <input
+                      {...register('serviceAccess.serviceUrl')}
+                      type="url"
+                      className={inputClassName}
+                      placeholder="https://zoom.us/j/..."
+                    />
+                  </Field>
+                  <Field label="버튼 표시명" hint="비우면 '서비스 시작하기'로 표시됩니다.">
+                    <input
+                      {...register('serviceAccess.buttonLabel')}
+                      type="text"
+                      className={inputClassName}
+                      placeholder="예: 참가자 전용 Zoom 입장"
+                    />
+                  </Field>
+                  <Field label="안내 설명 문구" hint="버튼 위에 표시할 짧은 안내 문구입니다.">
+                    <input
+                      {...register('serviceAccess.description')}
+                      type="text"
+                      className={inputClassName}
+                      placeholder="예: 행사 당일 아래 버튼을 눌러 입장해 주세요."
+                    />
+                  </Field>
                 </div>
               </section>
 
