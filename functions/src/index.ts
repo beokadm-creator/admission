@@ -152,8 +152,7 @@ async function sendAlimTalk(to: string, templateCode: string, templateParams: an
       functions.logger.error('[AlimTalk] Send failed', {
         response: response.data,
         templateCode,
-        recipientNo: to.replace(/-/g, ''),
-        senderKey
+        recipientNo: to.replace(/-/g, '')
       });
     }
   } catch (error) {
@@ -315,6 +314,58 @@ export const lookupRegistration = functionsV1.https.onCall(async (request: any, 
       updatedAt: reg.updatedAt
     }
   };
+});
+
+export const getServiceAccessLink = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
+  const { data, rawRequest } = sharedNormalizeCallableRequest(request, legacyContext);
+  const { schoolId, registrationId, studentName, phoneLast4 } = data?.data || data;
+
+  if (!schoolId || !registrationId || !studentName || !phoneLast4) {
+    throw new functions.https.HttpsError('invalid-argument', '필수 정보가 누락되었습니다.');
+  }
+
+  if (typeof phoneLast4 !== 'string' || !/^\d{4}$/.test(phoneLast4)) {
+    throw new functions.https.HttpsError('invalid-argument', '전화번호 뒤 4자리가 올바르지 않습니다.');
+  }
+
+  const rateLimit = await sharedCheckRateLimit(
+    admin.firestore(),
+    sharedGetRateLimitIdentifier(rawRequest, `serviceAccess_${schoolId}_${registrationId}`),
+    5,
+    60000
+  );
+  if (!rateLimit.allowed) {
+    throw new functions.https.HttpsError(
+      'resource-exhausted',
+      `요청이 너무 빈번합니다. ${rateLimit.retryAfter}초 후에 다시 시도해 주세요.`
+    );
+  }
+
+  const [regDoc, schoolDoc] = await Promise.all([
+    admin.firestore().doc(`schools/${schoolId}/registrations/${registrationId}`).get(),
+    admin.firestore().doc(`schools/${schoolId}`).get()
+  ]);
+
+  if (!regDoc.exists || !schoolDoc.exists) {
+    throw new functions.https.HttpsError('not-found', '신청 내역을 찾을 수 없습니다.');
+  }
+
+  const reg = regDoc.data()!;
+
+  if (reg.studentName !== studentName.trim() || reg.phoneLast4 !== phoneLast4) {
+    throw new functions.https.HttpsError('permission-denied', '본인 확인에 실패했습니다.');
+  }
+
+  if (reg.status !== 'confirmed') {
+    throw new functions.https.HttpsError('failed-precondition', '신청완료 상태인 신청자만 서비스에 접근할 수 있습니다.');
+  }
+
+  const serviceUrl = schoolDoc.data()!.serviceAccess?.serviceUrl as string | undefined;
+  if (!serviceUrl) {
+    throw new functions.https.HttpsError('not-found', '이동할 서비스 URL이 설정되지 않았습니다.');
+  }
+
+  return { accessUrl: serviceUrl };
 });
 
 export const syncSchoolSlots = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
