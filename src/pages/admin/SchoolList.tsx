@@ -130,9 +130,7 @@ export default function SchoolList() {
           nhnAppKey: '',
           nhnSecretKey: '',
           successTemplate: '',
-          waitlistTemplate: '',
-          confirmTemplateCode: '',
-          waitlistTemplateCode: ''
+          waitlistTemplate: ''
         },
         terms: {
           privacy: { title: '개인정보 수집 및 이용 동의', content: '' },
