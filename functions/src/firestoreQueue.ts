@@ -4,11 +4,20 @@ import * as functionsV1 from 'firebase-functions/v1';
 import * as admin from 'firebase-admin';
 import { createHash, randomBytes } from 'crypto';
 import {
+  type AdmissionRoundConfig,
   checkRateLimit as sharedCheckRateLimit,
   getRateLimitIdentifier as sharedGetRateLimitIdentifier,
   normalizeAdmissionRounds as sharedNormalizeAdmissionRounds,
   normalizeCallableRequest as sharedNormalizeCallableRequest
 } from './shared/queueShared';
+import {
+  buildQueueStateDoc as buildQueueStateRecord,
+  getAdvanceLimitFromCounts,
+  getAvailableWriterSlots,
+  getQueueAdvanceAmount,
+  type QueueLiveMetrics,
+  type QueueStateDoc
+} from './queueState';
 
 // Runtime configurations for hot-path functions to handle stampede load
 const hotPathRuntime = functionsV1.runWith({
@@ -43,32 +52,6 @@ if (admin.apps.length === 0) {
 
 type QueueEntryStatus = 'waiting' | 'eligible' | 'consumed' | 'expired';
 type ReservationStatus = 'reserved' | 'processing' | 'confirmed' | 'expired' | 'cancelled';
-
-interface AdmissionRoundConfig {
-  id: string;
-  label: string;
-  openDateTime: string;
-  maxCapacity: number;
-  waitlistCapacity: number;
-  enabled: boolean;
-}
-
-interface QueueStateDoc {
-  roundId: string;
-  roundLabel: string;
-  currentNumber: number;
-  lastAssignedNumber: number;
-  lastAdvancedAt: number;
-  activeReservationCount: number;
-  pendingAdmissionCount: number;
-  maxActiveSessions: number;
-  confirmedCount: number;
-  waitlistedCount: number;
-  totalCapacity: number;
-  availableCapacity: number;
-  updatedAt: number;
-  queueEnabled: boolean;
-}
 
 interface QueueEntryDoc {
   roundId: string;
@@ -331,57 +314,15 @@ function buildQueueStateDoc(
   round: AdmissionRoundConfig,
   existing?: Partial<QueueStateDoc> | null
 ): QueueStateDoc {
-  const { totalCapacity } = getRoundCapacity(round);
-  const maxActiveSessions = getMaxActiveSessions(schoolData);
-  const pendingAdmissionCount = Number(existing?.pendingAdmissionCount ?? 0);
-  const confirmedCount = Number(existing?.confirmedCount ?? 0);
-  const waitlistedCount = Number(existing?.waitlistedCount ?? 0);
-  const activeReservationCount = Number(existing?.activeReservationCount ?? 0);
-  const currentNumber = Number(existing?.currentNumber ?? 0);
-  const lastAssignedNumber = Number(existing?.lastAssignedNumber ?? 0);
-  const lastAdvancedAt = Number(existing?.lastAdvancedAt ?? 0);
-  const updatedAt = Number(existing?.updatedAt ?? Date.now());
-
-  return {
-    roundId: round.id,
-    roundLabel: round.label,
-    currentNumber,
-    lastAssignedNumber,
-    lastAdvancedAt,
-    activeReservationCount,
-    pendingAdmissionCount,
-    maxActiveSessions,
-    confirmedCount,
-    waitlistedCount,
-    totalCapacity,
-    availableCapacity: Math.max(0, totalCapacity - confirmedCount - waitlistedCount - activeReservationCount),
-    updatedAt,
-    queueEnabled: isQueueEnabled(schoolData)
-  };
-}
-
-function getAvailableWriterSlots(queueState: QueueStateDoc) {
-  return Math.max(0, queueState.maxActiveSessions - queueState.activeReservationCount);
-}
-
-function getQueueAdvanceAmount(queueState: QueueStateDoc, limit = Number.MAX_SAFE_INTEGER) {
-  const waitingCount = Math.max(0, queueState.lastAssignedNumber - queueState.currentNumber);
-  const admissionHeadroom = Math.max(
-    0,
-    queueState.maxActiveSessions - queueState.activeReservationCount - queueState.pendingAdmissionCount
+  return buildQueueStateRecord(
+    round,
+    {
+      totalCapacity: getRoundCapacity(round).totalCapacity,
+      maxActiveSessions: getMaxActiveSessions(schoolData),
+      queueEnabled: isQueueEnabled(schoolData)
+    },
+    existing
   );
-  return Math.max(
-    0,
-    Math.min(waitingCount, queueState.availableCapacity, admissionHeadroom, limit)
-  );
-}
-
-interface QueueLiveMetrics {
-  activeReservationCount: number;
-  pendingAdmissionCount: number;
-  confirmedCount: number;
-  waitlistedCount: number;
-  availableCapacity: number;
 }
 
 async function loadQueueLiveMetrics(
@@ -434,17 +375,8 @@ async function loadQueueLiveMetrics(
   };
 }
 
-function getAdvanceLimitFromCounts(
-  queueState: QueueStateDoc,
-  counts: QueueLiveMetrics,
-  limit = Number.MAX_SAFE_INTEGER
-) {
-  const admissionHeadroom = Math.max(
-    0,
-    queueState.maxActiveSessions - counts.activeReservationCount - counts.pendingAdmissionCount
-  );
-
-  return Math.max(0, Math.min(counts.availableCapacity, admissionHeadroom, limit));
+function getAuditLogCollection(db: admin.firestore.Firestore, schoolId: string) {
+  return db.collection(`schools/${schoolId}/adminAuditLogs`);
 }
 
 async function loadEntriesForPromotion(
@@ -1350,7 +1282,13 @@ export const joinQueue = hotPathRuntime.https.onCall(async (request: any, legacy
 
     // Best-effort immediate advancement so users do not wait for the 1-minute
     // scheduler tick when there is already available admission headroom.
-    await advanceQueueForSchool(db, schoolId, round, { now });
+    void advanceQueueForSchool(db, schoolId, round, { now }).catch((error) => {
+      functions.logger.warn('[joinQueue] best-effort advance failed', {
+        schoolId,
+        roundId: round.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
 
     // queueState is still reconciled by the scheduled autoAdvanceQueue job.
     return joinResult;
@@ -1592,7 +1530,7 @@ export const startRegistrationSession = standardRuntime.https.onCall(async (requ
 
 export const getReservationSession = standardRuntime.https.onCall(async (request: any, legacyContext?: any) => {
   const db = admin.firestore();
-  const { data, auth } = normalizeCallableRequest(request, legacyContext);
+  const { data, auth, rawRequest } = normalizeCallableRequest(request, legacyContext);
   if (!auth) {
     throw new functions.https.HttpsError('unauthenticated', '로그인이 필요합니다.');
   }
@@ -1600,6 +1538,17 @@ export const getReservationSession = standardRuntime.https.onCall(async (request
   const { schoolId, sessionId } = data?.data || data;
   if (!schoolId || !sessionId) {
     throw new functions.https.HttpsError('invalid-argument', 'schoolId와 sessionId가 필요합니다.');
+  }
+
+  const [userRateLimit, ipRateLimit] = await Promise.all([
+    checkRateLimit(db, `getReservationSession_${auth.uid}_${sessionId}`, 20, 60000),
+    checkRateLimit(db, `getReservationSession_${schoolId}_${getRateLimitIdentifier(rawRequest, auth.uid)}`, 120, 60000)
+  ]);
+  if (!userRateLimit.allowed) {
+    throw new functions.https.HttpsError('resource-exhausted', `요청이 너무 빈번합니다. ${userRateLimit.retryAfter}초 후에 다시 시도해 주세요.`);
+  }
+  if (!ipRateLimit.allowed) {
+    throw new functions.https.HttpsError('resource-exhausted', `요청이 너무 빈번합니다. ${ipRateLimit.retryAfter}초 후에 다시 시도해 주세요.`);
   }
 
   const reservationSnapshot = await reservationsRef(db, schoolId).doc(sessionId).get();
@@ -1668,7 +1617,7 @@ export const forceExpireSession = functionsV1.https.onCall(async (request: any, 
 
 export const heartbeatQueuePresence = heartbeatRuntime.https.onCall(async (request: any, legacyContext?: any) => {
   const db = admin.firestore();
-  const { data, auth } = normalizeCallableRequest(request, legacyContext);
+  const { data, auth, rawRequest } = normalizeCallableRequest(request, legacyContext);
   if (!auth) {
     throw new functions.https.HttpsError('unauthenticated', '로그인이 필요합니다.');
   }
@@ -1676,6 +1625,17 @@ export const heartbeatQueuePresence = heartbeatRuntime.https.onCall(async (reque
   const { schoolId } = data?.data || data;
   if (!schoolId) {
     throw new functions.https.HttpsError('invalid-argument', 'schoolId가 필요합니다.');
+  }
+
+  const [userRateLimit, ipRateLimit] = await Promise.all([
+    checkRateLimit(db, `heartbeatQueuePresence_${auth.uid}_${schoolId}`, 30, 60000),
+    checkRateLimit(db, `heartbeatQueuePresence_${schoolId}_${getRateLimitIdentifier(rawRequest, auth.uid)}`, 240, 60000)
+  ]);
+  if (!userRateLimit.allowed) {
+    throw new functions.https.HttpsError('resource-exhausted', `요청이 너무 빈번합니다. ${userRateLimit.retryAfter}초 후에 다시 시도해 주세요.`);
+  }
+  if (!ipRateLimit.allowed) {
+    throw new functions.https.HttpsError('resource-exhausted', `요청이 너무 빈번합니다. ${ipRateLimit.retryAfter}초 후에 다시 시도해 주세요.`);
   }
 
   const entryRef = queueEntriesRef(db, schoolId).doc(auth.uid);
@@ -2201,18 +2161,29 @@ export const runAdminQueueAction = functionsV1.https.onCall(async (request: any,
 
 async function deleteCollectionInBatches(
   collection: admin.firestore.CollectionReference,
-  batchSize = 200
+  batchSize = 200,
+  maxBatches = 250
 ) {
-  while (true) {
+  let deletedCount = 0;
+  let batchCount = 0;
+
+  while (batchCount < maxBatches) {
     const snapshot = await collection.limit(batchSize).get();
     if (snapshot.empty) {
-      return;
+      return { deletedCount, batchCount };
     }
 
     const batch = admin.firestore().batch();
     snapshot.docs.forEach((doc) => batch.delete(doc.ref));
     await batch.commit();
+    deletedCount += snapshot.size;
+    batchCount += 1;
   }
+
+  throw new functions.https.HttpsError(
+    'resource-exhausted',
+    `삭제 배치 한도(${maxBatches})를 초과했습니다: ${collection.path}`
+  );
 }
 
 export const resetSchoolState = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
@@ -2223,6 +2194,7 @@ export const resetSchoolState = functionsV1.https.onCall(async (request: any, le
   }
 
   const { schoolId } = data?.data || data;
+  const requestId = sanitizeRequestId((data?.data || data)?.requestId);
   if (!schoolId) {
     throw new functions.https.HttpsError('invalid-argument', 'schoolId가 필요합니다.');
   }
@@ -2241,38 +2213,70 @@ export const resetSchoolState = functionsV1.https.onCall(async (request: any, le
 
   const schoolData = schoolSnapshot.data()!;
   const now = Date.now();
-
-  await Promise.all([
-    deleteCollectionInBatches(queueEntriesRef(db, schoolId)),
-    deleteCollectionInBatches(reservationsRef(db, schoolId)),
-    deleteCollectionInBatches(db.collection(`schools/${schoolId}/registrations`)),
-    deleteCollectionInBatches(db.collection(`schools/${schoolId}/requestLocks`)),
-    deleteCollectionInBatches(db.collection(`schools/${schoolId}/queueIdentityLocks`))
-  ]);
-  await Promise.all([
-    resetQueueIssuerState(schoolId, 'round1'),
-    resetQueueIssuerState(schoolId, 'round2')
-  ]);
-
-  await schoolRef.set({
-    stats: {
-      confirmedCount: 0,
-      waitlistedCount: 0
-    },
+  const auditRef = getAuditLogCollection(db, schoolId).doc();
+  await auditRef.set({
+    action: 'resetSchoolState',
+    actorUid: auth.uid,
+    requestId,
+    status: 'started',
+    startedAt: now,
     updatedAt: now
-  }, { merge: true });
+  });
 
-  for (const round of normalizeAdmissionRounds(schoolData)) {
-    await queueStateRef(db, schoolId, round.id).set(buildQueueStateDoc(schoolData, round, {
-      currentNumber: 0,
-      lastAssignedNumber: 0,
-      lastAdvancedAt: 0,
-      activeReservationCount: 0,
-      confirmedCount: 0,
-      waitlistedCount: 0,
+  try {
+    const deletionResults = await Promise.all([
+      deleteCollectionInBatches(queueEntriesRef(db, schoolId)),
+      deleteCollectionInBatches(reservationsRef(db, schoolId)),
+      deleteCollectionInBatches(db.collection(`schools/${schoolId}/registrations`)),
+      deleteCollectionInBatches(db.collection(`schools/${schoolId}/requestLocks`)),
+      deleteCollectionInBatches(db.collection(`schools/${schoolId}/queueIdentityLocks`))
+    ]);
+    await Promise.all([
+      resetQueueIssuerState(schoolId, 'round1'),
+      resetQueueIssuerState(schoolId, 'round2')
+    ]);
+
+    await schoolRef.set({
+      stats: {
+        confirmedCount: 0,
+        waitlistedCount: 0
+      },
       updatedAt: now
-    }), { merge: true });
-  }
+    }, { merge: true });
 
-  return { success: true };
+    for (const round of normalizeAdmissionRounds(schoolData)) {
+      await queueStateRef(db, schoolId, round.id).set(buildQueueStateDoc(schoolData, round, {
+        currentNumber: 0,
+        lastAssignedNumber: 0,
+        lastAdvancedAt: 0,
+        activeReservationCount: 0,
+        confirmedCount: 0,
+        waitlistedCount: 0,
+        updatedAt: now
+      }), { merge: true });
+    }
+
+    await auditRef.set({
+      status: 'completed',
+      completedAt: Date.now(),
+      updatedAt: Date.now(),
+      deletionSummary: {
+        queueEntries: deletionResults[0],
+        reservations: deletionResults[1],
+        registrations: deletionResults[2],
+        requestLocks: deletionResults[3],
+        queueIdentityLocks: deletionResults[4]
+      }
+    }, { merge: true });
+
+    return { success: true };
+  } catch (error) {
+    await auditRef.set({
+      status: 'failed',
+      completedAt: Date.now(),
+      updatedAt: Date.now(),
+      errorMessage: error instanceof Error ? error.message : String(error)
+    }, { merge: true });
+    throw error;
+  }
 });

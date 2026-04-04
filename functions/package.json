@@ -2,6 +2,7 @@
   "name": "functions",
   "scripts": {
     "build": "tsc || exit 0",
+    "test": "npm run build && node --test lib/queueState.test.js",
     "serve": "npm run build && firebase emulators:start --only functions",
     "shell": "npm run build && firebase functions:shell",
     "start": "npm run shell",
