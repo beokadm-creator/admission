@@ -434,6 +434,15 @@ export default function SchoolSettings() {
         setValue('serviceAccess.buttonLabel', data.serviceAccess?.buttonLabel || '');
         setValue('serviceAccess.description', data.serviceAccess?.description || '');
         setValue('isActive', data.isActive !== false);
+        setValue('terms.privacy.title', data.terms?.privacy?.title || '');
+        setValue('terms.privacy.content', data.terms?.privacy?.content || '');
+        setValue('terms.privacy.required', data.terms?.privacy?.required !== false);
+        setValue('terms.thirdParty.title', data.terms?.thirdParty?.title || '');
+        setValue('terms.thirdParty.content', data.terms?.thirdParty?.content || '');
+        setValue('terms.thirdParty.required', data.terms?.thirdParty?.required !== false);
+        setValue('terms.sms.title', data.terms?.sms?.title || '');
+        setValue('terms.sms.content', data.terms?.sms?.content || '');
+        setValue('terms.sms.required', data.terms?.sms?.required !== false);
         setValue('programImageUrl', data.programImageUrl || '');
         setValue('formFields.gradeOptionsText', (data.formFields?.gradeOptions || []).join('\n'));
         // 긴급 관리 상태 로드
@@ -650,6 +659,28 @@ export default function SchoolSettings() {
           successTemplate,
           waitlistTemplate,
           promoteTemplate
+        },
+        usePopup: !!data.usePopup,
+        isActive: data.isActive !== false,
+        buttonSettings: {
+          showLookupButton: data.buttonSettings?.showLookupButton !== false
+        },
+        terms: {
+          privacy: {
+            title: data.terms?.privacy?.title || '',
+            content: data.terms?.privacy?.content || '',
+            required: data.terms?.privacy?.required !== false
+          },
+          thirdParty: {
+            title: data.terms?.thirdParty?.title || '',
+            content: data.terms?.thirdParty?.content || '',
+            required: data.terms?.thirdParty?.required !== false
+          },
+          sms: {
+            title: data.terms?.sms?.title || '',
+            content: data.terms?.sms?.content || '',
+            required: data.terms?.sms?.required !== false
+          }
         },
         updatedAt: Date.now()
       };
