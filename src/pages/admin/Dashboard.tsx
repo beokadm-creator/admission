@@ -1,20 +1,17 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, doc, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase/config';
 import { Settings, Users, Activity, TrendingUp, School } from 'lucide-react';
 
-interface SchoolBase {
+interface SchoolStats {
   id: string;
   name: string;
-  maxCapacity: number;
-  isActive: boolean;
-}
-
-interface SchoolStats extends SchoolBase {
   confirmedCount: number;
   waitlistedCount: number;
+  maxCapacity: number;
+  isActive: boolean;
 }
 
 export default function AdminDashboard() {
@@ -23,89 +20,54 @@ export default function AdminDashboard() {
   const [schools, setSchools] = useState<SchoolStats[]>([]);
   const [loadingStats, setLoadingStats] = useState(true);
 
-  // schoolId → { confirmedCount, waitlistedCount } 실시간 통계
-  const [queueStats, setQueueStats] = useState<Record<string, { confirmedCount: number; waitlistedCount: number }>>({});
-  const queueUnsubscribesRef = useRef<Record<string, () => void>>({});
-
   useEffect(() => {
-    if (loading || !adminProfile) return;
-
-    if (adminProfile.role === 'SCHOOL' && adminProfile.assignedSchoolId) {
-      navigate(`/admin/schools/${adminProfile.assignedSchoolId}`);
-      return;
+    if (!loading && adminProfile) {
+      if (adminProfile.role === 'SCHOOL' && adminProfile.assignedSchoolId) {
+        navigate(`/admin/schools/${adminProfile.assignedSchoolId}`);
+        return;
+      }
     }
 
-    if (adminProfile.role !== 'MASTER') return;
+    const fetchSchoolStats = async () => {
+      try {
+        const schoolsSnapshot = await getDocs(collection(db, 'schools'));
+        const schoolsData = await Promise.all(
+          schoolsSnapshot.docs.map(async (schoolDoc) => {
+            const schoolData = schoolDoc.data();
+            const registrationsSnapshot = await getDocs(
+              collection(db, `schools/${schoolDoc.id}/registrations`)
+            );
 
-    const schoolsRef = collection(db, 'schools');
-    const unsubscribe = onSnapshot(schoolsRef, (snapshot) => {
-      const schoolsData: SchoolBase[] = snapshot.docs.map((d) => {
-        const data = d.data();
-        return {
-          id: d.id,
-          name: data.name || '알 수 없는 학교',
-          maxCapacity: Number(data.maxCapacity || 0),
-          isActive: data.isActive !== false
-        };
-      });
+            const confirmedCount = registrationsSnapshot.docs.filter(
+              doc => doc.data().status === 'confirmed'
+            ).length;
+            const waitlistedCount = registrationsSnapshot.docs.filter(
+              doc => doc.data().status === 'waitlisted'
+            ).length;
 
-      setSchools(
-        schoolsData.map((s) => ({
-          ...s,
-          confirmedCount: queueStats[s.id]?.confirmedCount ?? 0,
-          waitlistedCount: queueStats[s.id]?.waitlistedCount ?? 0
-        }))
-      );
-      setLoadingStats(false);
+            return {
+              id: schoolDoc.id,
+              name: schoolData.name,
+              confirmedCount,
+              waitlistedCount,
+              maxCapacity: schoolData.maxCapacity || 0,
+              isActive: schoolData.isActive || false
+            } as SchoolStats;
+          })
+        );
 
-      // 새로 추가된 학교의 queueState 구독
-      const currentIds = new Set(schoolsData.map((s) => s.id));
-
-      // 삭제된 학교 구독 해제
-      Object.keys(queueUnsubscribesRef.current).forEach((id) => {
-        if (!currentIds.has(id)) {
-          queueUnsubscribesRef.current[id]?.();
-          delete queueUnsubscribesRef.current[id];
-        }
-      });
-
-      // 신규 학교 구독 등록
-      schoolsData.forEach((school) => {
-        if (queueUnsubscribesRef.current[school.id]) return;
-        const stateRef = doc(db, 'schools', school.id, 'queueState', 'round1');
-        queueUnsubscribesRef.current[school.id] = onSnapshot(stateRef, (snap) => {
-          const data = snap.data();
-          setQueueStats((prev) => ({
-            ...prev,
-            [school.id]: {
-              confirmedCount: Number(data?.confirmedCount ?? 0),
-              waitlistedCount: Number(data?.waitlistedCount ?? 0)
-            }
-          }));
-        });
-      });
-    }, (error) => {
-      console.error('Error listening to school stats:', error);
-      setLoadingStats(false);
-    });
-
-    return () => {
-      unsubscribe();
-      Object.values(queueUnsubscribesRef.current).forEach((fn) => fn());
-      queueUnsubscribesRef.current = {};
+        setSchools(schoolsData);
+      } catch (error) {
+        console.error('Error fetching school stats:', error);
+      } finally {
+        setLoadingStats(false);
+      }
     };
-  }, [adminProfile, loading, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // queueStats가 바뀔 때마다 schools에 반영
-  useEffect(() => {
-    setSchools((prev) =>
-      prev.map((s) => ({
-        ...s,
-        confirmedCount: queueStats[s.id]?.confirmedCount ?? s.confirmedCount,
-        waitlistedCount: queueStats[s.id]?.waitlistedCount ?? s.waitlistedCount
-      }))
-    );
-  }, [queueStats]);
+    if (adminProfile?.role === 'MASTER') {
+      fetchSchoolStats();
+    }
+  }, [adminProfile, loading, navigate]);
 
   if (loading || loadingStats) {
     return (
@@ -242,12 +204,12 @@ export default function AdminDashboard() {
                       <div className="mt-4">
                         <div className="flex justify-between text-xs text-gray-600 mb-1">
                           <span>진행률</span>
-                          <span>{school.maxCapacity > 0 ? Math.round((school.confirmedCount / school.maxCapacity) * 100) : 0}%</span>
+                          <span>{Math.round((school.confirmedCount / school.maxCapacity) * 100)}%</span>
                         </div>
                         <div className="w-full bg-gray-200 rounded-full h-2">
                           <div
                             className="bg-gradient-to-r from-blue-500 to-purple-500 h-full rounded-full transition-all duration-500"
-                            style={{ width: `${school.maxCapacity > 0 ? Math.min((school.confirmedCount / school.maxCapacity) * 100, 100) : 0}%` }}
+                            style={{ width: `${Math.min((school.confirmedCount / school.maxCapacity) * 100, 100)}%` }}
                           ></div>
                         </div>
                       </div>
