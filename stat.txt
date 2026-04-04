@@ -1,0 +1,23 @@
+commit 87b0dd4c95f7dd959fd6a9b4a54518a920910ad9
+Author: Aaron <beokadm@gmail.com>
+Date:   Sun Apr 5 00:53:23 2026 +0900
+
+    fix: 湲닿툒 愿由?湲곕뒫 踰꾧렇 ?섏젙 諛?肄붾뱶 ?뺣━
+    
+    - [P0] SchoolSettings: sessionTimeoutSettings ??濡쒕뱶 ??ms?믩텇/珥???????꾨씫 ?섏젙 (?ъ?????媛???컻 諛⑹?)
+    - [P0] firestoreQueue: getReservationSession grace period ?섎뱶肄붾뵫 ?쒓굅, schoolData DB ?ㅼ젙媛??ъ슜?쇰줈 ?듭씪
+    - [P1] Dashboard: schools 臾몄꽌??誘몄〈??stats ?꾨뱶 ???queueState/round1 媛쒕퀎 onSnapshot 援щ룆?쇰줈 援먯껜 (?ㅼ떆媛??듦퀎 ?뺤긽??
+    - [P2] Register: ?쎄? fallback 臾멸뎄???뱀젙 怨좉컼?щ챸(?쒖슱?, ?띿빱裕ㅻ땲耳?댁뀡) ?쒓굅 ??踰붿슜 臾멸뎄濡?援먯껜
+    - [P2] SchoolSettings: forceActiveRound 踰꾪듉 ?곹깭瑜?watch() ???activeForceRound state濡?愿由?(DB 諛섏쁺 利됱떆)
+    - [P3] SmartQueueGate: 誘몄궗??state(autoEntering, joiningElapsed, showProgramImage), ref(autoStartedRef, joinRequestIdRef, startRequestIdRef) 諛?unused import ?쒓굅
+    - SmartQueueGate: MetricCard return 臾??ル뒗 愿꾪샇 ?꾨씫 ?섏젙 (?먮낯 踰꾧렇)
+    
+    Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+
+ functions/src/firestoreQueue.ts    |   15 +-
+ src/components/SmartQueueGate.tsx  | 1139 +++++-------------------------------
+ src/pages/admin/Dashboard.tsx      |  132 +++--
+ src/pages/admin/SchoolSettings.tsx | 1084 ++++++++++++++--------------------
+ src/pages/school/Register.tsx      |   35 +-
+ src/types/models.ts                |    9 +
+ 6 files changed, 695 insertions(+), 1719 deletions(-)

@@ -1,0 +1,50 @@
+0783af4f1c7728fe2312dec2ea8974125174e6de|2026-04-05 06:32|fix: Firestore rules - adminAuditLogs ?쒕툕而щ젆???쎄린 沅뚰븳 異붽? (MASTER留?
+87b0dd4c95f7dd959fd6a9b4a54518a920910ad9|2026-04-05 00:53|fix: 湲닿툒 愿由?湲곕뒫 踰꾧렇 ?섏젙 諛?肄붾뱶 ?뺣━
+667df05b59c39c378f49a22af2efcddecf306f54|2026-04-04 21:51|feat: 2李?紐⑥쭛 ?쒖뒪??諛?援먯감 李⑥닔 吏???뺤콉 援ы쁽
+dd5772e5b1ce2207de88079d1273bd9d2f274814|2026-04-04 21:15|feat: 寃뚯씠???ㅻ뱶?쇱씤 ?덈궡臾??숈쟻 泥섎━ 諛?UI 媛쒖꽑 (heroMessage ?곕룞)
+fdaaacf0edf4e4e2d069d3e361ca165fbd7e747e|2026-04-04 18:14|ux: 留덇컧 ?곹깭 dead-end ?댁냼 諛?嫄곗쭞 ?щ쭩 硫붿떆吏 ?꾨㈃ ?쒓굅
+ee952493a66659e9ad334e1b425988386b5bd931|2026-04-04 17:50|ux: ?숇?紐?????덈궡 臾멸뎄 ?꾨㈃ ?뺣퉬 諛?dead-end ?먮윭 ?댁냼
+90c12a6e5e851bbaf68ff0d31ce1da0e31611879|2026-04-04 16:57|Add getServiceAccessLink function and remove senderKey from logs
+8b7711cbae065ff23529ffd4571e00ef1e49e43a|2026-04-04 16:20|Remove public registration cancellation
+1b3eb377c0db1a6d649f14d298a5d0e0acc90655|2026-04-04 16:01|Harden queue helpers and admin tooling
+ba7dc2bb5a92af22a4b421901854dd7136d19b70|2026-04-04 14:13|Adjust runtimes for reservation and cleanup functions
+49c9417ce2af9d02a6a8891d6197e583b473da44|2026-04-04 09:29|update: refine hero text and document titles for Hongcomm and SNU
+41f691241eeed99f62ab67f72f66120a95cba204|2026-04-04 09:17|feat: redesign home page for Hongcomm traffic control system
+57c227b35ddcd17e4750f29479be72ca60d81062|2026-04-03 22:29|Fix admin capacity overview and mobile program image viewer
+ff4cbe37151fd544f3f3df65fffda2da59c80678|2026-04-03 21:47|fix: sync admin dashboard with live queue state
+f2fce380f05fc13a7f2075423fccef9abedb7480|2026-04-03 21:43|fix: align alimtalk template parameters
+3d96efc0ca3e7d56c55b0d6bbe1599f35649e214|2026-04-03 21:31|fix: hard redirect into registration session
+82e202f60990114b77e467a8a39ec4794b2bf158|2026-04-03 21:24|fix: keep near-turn users on the gate
+b8c346f5b840abdc5cb010769a64efba369d112b|2026-04-03 21:03|fix: use nhn alimtalk v2 endpoint
+815866a676f576eb9f2c0a55eb61b93ae35bf753|2026-04-03 20:55|fix: block completed users from re-entering queue
+9044dc665c2f2042d2a7902552ce5075226cf9f9|2026-04-03 20:45|fix: clarify queue retry and sync live counters
+f24ad2add9df839de55d493c3dd97770f6a16d2c|2026-04-03 20:24|fix: update completion copy and branding
+d7e4b6490273208b4d2ce0311ee922f39dccc2e6|2026-04-03 20:12|fix: fallback when auto entry stalls
+a3aff15736dea981a240f6147460d21be709997e|2026-04-03 19:38|fix: advance queue immediately after join
+1e2decb00a08618fb1913c7db01df7ad81d6b133|2026-04-03 19:26|fix: prevent auto re-entry after session expiry
+881f027c30053ccc3aae1e6389211559ee072cd2|2026-04-03 18:50|fix: guard inactive school routes
+055f1b380856a0a9eeafb584838eade32e84b207|2026-04-03 18:48|fix: restore korean queue and registration copy
+b7eba5618ce5df5f645651d7735ad86d660c0b4a|2026-04-03 15:41|chore: finalize pre-live queue and korean UX fixes
+da65b22f7405337e058e9d0a8d61cd1cb71258e0|2026-04-02 14:44|Harden queue advancement and session flow
+828997e9922356a73d044b6b434c79e04ebd299e|2026-04-02 14:12|Stabilize queue join and identity flow
+1b690785abe5bc0a996aec4e488700bc000b157f|2026-04-02 09:44|style: remove duplicate countdown and adjust progress steps in gate page
+e343208d92d88977a69ba0ef5c8016e8420308d0|2026-04-02 09:37|feat: ?붿옄???먯튃 ?곸슜 諛??ъ슜???좎껌 ?붾㈃ UI 媛쒖꽑
+094b8931c4e62f0ca5e6fa942821fedb03ba9178|2026-04-01 12:30|Adjust queue gate hero copy
+678af409c1b4df8fc0c0c2e2c8fd0109c3aaad1d|2026-04-01 11:54|Refine queue gate mobile layout
+169043391b78f260a896450ca6eb042d3829bdff|2026-04-01 11:28|Update queue gate countdown layout
+e6947da27f9f78f9b2cc55b00916d975cce09f9d|2026-03-31 17:09|Fix round save permissions and dual gate buttons
+da28d531f1fc85e386a1a305baa46ab798a96bfd|2026-03-31 16:48|Add two-round admission queue flow
+35b768ffedda7636dd12e35efcd9773473040814|2026-03-31 15:53|Secure school alimtalk credentials
+64d4e591a9baf8f9361cc5c8243b34ede96452f6|2026-03-31 15:03|Upgrade functions runtime to Node 22
+d69aee216c3e6b8253f0521dd3b73dae4f7fbe03|2026-03-31 14:35|Clean up legacy queue settings
+752a14391fee25c5f851781650c6e83f1bb21972|2026-03-31 14:13|Switch queue admission to continuous refill
+7dfb751779b705928859fa50456839b4cba3d301|2026-03-31 13:19|Remove App Check requirement for deployment
+a433d08ecacd903c6500be6c113e17ed458db3cb|2026-03-31 12:57|Refactor queue flow for fairness and stability
+85d6b3eb16553872681c13e7e735002aeceac20a|2026-03-27 09:45|chore: .tools/ ?붾젆?좊━瑜?.gitignore??異붽?
+2cc245d7025285da40d54a0de5368cd068a019ec|2026-03-27 09:34|fix: 5遺?留뚮즺 ??硫붿씤 ?섏씠吏濡?由щ떎?대젆??諛??쒕쾭 留뚮즺 ?뚮┝ 異붽?
+621c5ba9105a6b722fa704b75c2a62f9dff04f1e|2026-03-27 09:34|fix: ?湲곗뿴 泥?吏꾩엯 ??60珥??湲?臾몄젣 ?섏젙 諛??몄뀡 留뚮즺 API 異붽?
+045554e9ddcde30085a7c3bae3426f588e7d2427|2026-03-26 18:44|feat: simplify admin login UI and enhance school data reset functionality
+bbc8601a944f1a71d33234659189380e2e16091f|2026-03-25 14:48|feat: finalize registration system with capacity management, terms/conditions, and registration deletion
+ead9bb869e1756f9df39b2ff747d3f0b3adce991|2026-03-19 17:22|?쇱씠釉?以鍮?290d13c9226e18cd837fc76f2567e6992f4ada68|2026-03-14 22:43|chore: Functions 諛고룷瑜??꾪븳 以鍮?afab20a680804b5cabc2b27f40c65032b68f4e0c|2026-03-14 22:29|fix: Cloud Functions TypeScript ?ㅼ젙 諛?getABTestResults ?⑥닔 ?섏젙
+09263437293029d0050df367eeebe1ab053c0458|2026-03-14 21:49|fix: TypeScript 鍮뚮뱶 ?ㅻ쪟 ?섏젙 諛?????뺤쓽 媛쒖꽑
+49ed055f756b570760acfe3bce43d8833b454a09|2026-03-14 21:36|feat: RTDB 湲곕컲 ?щ’ ?덉빟 ?쒖뒪??援ы쁽 諛?愿由ъ옄 ?섏씠吏 ?꾨㈃ 媛쒗렪

@@ -368,44 +368,6 @@ export const getServiceAccessLink = functionsV1.https.onCall(async (request: any
   return { accessUrl: serviceUrl };
 });
 
-export const syncSchoolSlots = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
-  const { data, auth } = sharedNormalizeCallableRequest(request, legacyContext);
-  if (!auth) {
-    throw new functions.https.HttpsError('unauthenticated', '로그인이 필요합니다.');
-  }
-
-  const { schoolId, total } = data?.data || data;
-  if (!schoolId || typeof total !== 'number') {
-    throw new functions.https.HttpsError('invalid-argument', 'schoolId와 total이 필요합니다.');
-  }
-
-  await assertAdminAccessToSchool(auth.uid, schoolId);
-
-  const queueStateRef = admin.firestore().doc(`schools/${schoolId}/queueState/round1`);
-  await admin.firestore().runTransaction(async (transaction) => {
-    const snapshot = await transaction.get(queueStateRef);
-    const current = snapshot.exists ? snapshot.data() || {} : {};
-    const confirmedCount = Number(current.confirmedCount || 0);
-    const waitlistedCount = Number(current.waitlistedCount || 0);
-    const activeReservationCount = Number(current.activeReservationCount || 0);
-    const updatedAt = Date.now();
-
-    transaction.set(queueStateRef, {
-      totalCapacity: total,
-      availableCapacity: Math.max(0, total - confirmedCount - waitlistedCount - activeReservationCount),
-      updatedAt
-    }, { merge: true });
-  });
-
-  return { success: true };
-});
-
-export const runMaintenanceTask = functionsV1.https.onCall(async () => {
-  return {
-    success: true,
-    message: 'Legacy RTDB maintenance tasks were removed. Use Firestore queue jobs instead.'
-  };
-});
 
 export const onRegistrationCreateQueued = firestoreTriggers
   .document('schools/{schoolId}/registrations/{registrationId}')

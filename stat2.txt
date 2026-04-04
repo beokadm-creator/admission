@@ -1,0 +1,8 @@
+commit dd5772e5b1ce2207de88079d1273bd9d2f274814
+Author: Aaron <beokadm@gmail.com>
+Date:   Sat Apr 4 21:15:08 2026 +0900
+
+    feat: 寃뚯씠???ㅻ뱶?쇱씤 ?덈궡臾??숈쟻 泥섎━ 諛?UI 媛쒖꽑 (heroMessage ?곕룞)
+
+ src/components/SmartQueueGate.tsx | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)

@@ -33,7 +33,7 @@ export interface SchoolConfig {
   parkingMessage?: string;
   usePopup: boolean;
   popupContent?: string;
-  previewToken?: string;
+
   queueSettings?: {
     maxActiveSessions: number;
     enabled: boolean;
@@ -47,12 +47,7 @@ export interface SchoolConfig {
     message: string;
   };
   forceActiveRound?: 'round1' | 'round2' | null;
-  abTestSettings?: {
-    enabled: boolean;
-    splitRatio: number;
-    startDate?: string;
-    endDate?: string;
-  };
+
   formFields: {
     collectEmail: boolean;
     collectAddress: boolean;
@@ -68,8 +63,6 @@ export interface SchoolConfig {
     successTemplate: string;
     waitlistTemplate: string;
     promoteTemplate?: string;
-    confirmTemplateCode?: string;
-    waitlistTemplateCode?: string;
   };
   buttonSettings: {
     showLookupButton: boolean;

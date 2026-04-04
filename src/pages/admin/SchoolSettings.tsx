@@ -254,7 +254,6 @@ export default function SchoolSettings() {
       usePopup: false,
       popupContent: '',
       programImageUrl: '',
-      previewToken: '',
       queueSettings: {
         enabled: true,
         maxActiveSessions: 60
@@ -273,9 +272,6 @@ export default function SchoolSettings() {
         nhnSenderKey: '',
         successTemplate: '',
         waitlistTemplate: '',
-        promoteTemplate: '',
-        confirmTemplateCode: '',
-        waitlistTemplateCode: ''
       },
       buttonSettings: {
         showLookupButton: true
@@ -407,7 +403,6 @@ export default function SchoolSettings() {
         setValue('parkingMessage', heroMessage);
         setValue('usePopup', !!data.usePopup);
         setValue('popupContent', data.popupContent || '');
-        setValue('previewToken', data.previewToken || '');
         setValue('queueSettings.enabled', data.queueSettings?.enabled !== false);
         setValue('queueSettings.maxActiveSessions', data.queueSettings?.maxActiveSessions || 60);
         setValue('formFields.collectEmail', !!data.formFields?.collectEmail);
@@ -420,21 +415,13 @@ export default function SchoolSettings() {
         setValue('alimtalkSettings.nhnSenderKey', privateAlimtalk?.nhnSenderKey || '');
         setValue(
           'alimtalkSettings.successTemplate',
-          data.alimtalkSettings?.successTemplate || data.alimtalkSettings?.confirmTemplateCode || ''
+          data.alimtalkSettings?.successTemplate || ''
         );
         setValue(
           'alimtalkSettings.waitlistTemplate',
-          data.alimtalkSettings?.waitlistTemplate || data.alimtalkSettings?.waitlistTemplateCode || ''
+          data.alimtalkSettings?.waitlistTemplate || ''
         );
         setValue('alimtalkSettings.promoteTemplate', data.alimtalkSettings?.promoteTemplate || '');
-        setValue(
-          'alimtalkSettings.confirmTemplateCode',
-          data.alimtalkSettings?.confirmTemplateCode || data.alimtalkSettings?.successTemplate || ''
-        );
-        setValue(
-          'alimtalkSettings.waitlistTemplateCode',
-          data.alimtalkSettings?.waitlistTemplateCode || data.alimtalkSettings?.waitlistTemplate || ''
-        );
         setValue('buttonSettings.showLookupButton', data.buttonSettings?.showLookupButton !== false);
         setValue('isActive', data.isActive !== false);
         setValue('programImageUrl', data.programImageUrl || '');
@@ -583,13 +570,11 @@ export default function SchoolSettings() {
   const applyTemplate = (target: 'success' | 'waitlist' | 'promote', code: string) => {
     if (target === 'success') {
       setValue('alimtalkSettings.successTemplate', code);
-      setValue('alimtalkSettings.confirmTemplateCode', code);
       return;
     }
 
     if (target === 'waitlist') {
       setValue('alimtalkSettings.waitlistTemplate', code);
-      setValue('alimtalkSettings.waitlistTemplateCode', code);
       return;
     }
 
@@ -612,10 +597,8 @@ export default function SchoolSettings() {
       });
       const firstRound = admissionRounds[0];
       const firstRoundTotal = (firstRound?.maxCapacity || 0) + (firstRound?.waitlistCapacity || 0);
-      const successTemplate =
-        data.alimtalkSettings?.successTemplate?.trim() || data.alimtalkSettings?.confirmTemplateCode?.trim() || '';
-      const waitlistTemplate =
-        data.alimtalkSettings?.waitlistTemplate?.trim() || data.alimtalkSettings?.waitlistTemplateCode?.trim() || '';
+      const successTemplate = data.alimtalkSettings?.successTemplate?.trim() || '';
+      const waitlistTemplate = data.alimtalkSettings?.waitlistTemplate?.trim() || '';
       const promoteTemplate = data.alimtalkSettings?.promoteTemplate?.trim() || '';
       const sanitizedDoc = {
         ...data,
@@ -630,7 +613,6 @@ export default function SchoolSettings() {
         programInfo: programCopy,
         programImageUrl: data.programImageUrl || '',
         popupContent: data.popupContent || '',
-        previewToken: data.previewToken || '',
         queueSettings: {
           enabled: data.queueSettings?.enabled !== false,
           maxActiveSessions
@@ -651,9 +633,7 @@ export default function SchoolSettings() {
         alimtalkSettings: {
           successTemplate,
           waitlistTemplate,
-          promoteTemplate,
-          confirmTemplateCode: successTemplate,
-          waitlistTemplateCode: waitlistTemplate
+          promoteTemplate
         },
         updatedAt: Date.now()
       };
@@ -1284,8 +1264,7 @@ export default function SchoolSettings() {
                         type="text"
                         className={inputClassName}
                         onChange={(event) => {
-                          setValue('alimtalkSettings.successTemplate', event.target.value);
-                          setValue('alimtalkSettings.confirmTemplateCode', event.target.value);
+                        setValue('alimtalkSettings.successTemplate', event.target.value);
                         }}
                       />
                     </Field>
@@ -1318,7 +1297,6 @@ export default function SchoolSettings() {
                         className={inputClassName}
                         onChange={(event) => {
                           setValue('alimtalkSettings.waitlistTemplate', event.target.value);
-                          setValue('alimtalkSettings.waitlistTemplateCode', event.target.value);
                         }}
                       />
                     </Field>

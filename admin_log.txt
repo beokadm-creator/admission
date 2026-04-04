@@ -1,0 +1,14 @@
+87b0dd4|04-05 00:53|fix: 湲닿툒 愿由?湲곕뒫 踰꾧렇 ?섏젙 諛?肄붾뱶 ?뺣━
+8b7711c|04-04 16:20|Remove public registration cancellation
+57c227b|04-03 22:29|Fix admin capacity overview and mobile program image viewer
+ff4cbe3|04-03 21:47|fix: sync admin dashboard with live queue state
+b7eba56|04-03 15:41|chore: finalize pre-live queue and korean UX fixes
+da28d53|03-31 16:48|Add two-round admission queue flow
+35b768f|03-31 15:53|Secure school alimtalk credentials
+d69aee2|03-31 14:35|Clean up legacy queue settings
+752a143|03-31 14:13|Switch queue admission to continuous refill
+a433d08|03-31 12:57|Refactor queue flow for fairness and stability
+045554e|03-26 18:44|feat: simplify admin login UI and enhance school data reset functionality
+bbc8601|03-25 14:48|feat: finalize registration system with capacity management, terms/conditions, and registration deletion
+ead9bb8|03-19 17:22|?쇱씠釉?以鍮?0926343|03-14 21:49|fix: TypeScript 鍮뚮뱶 ?ㅻ쪟 ?섏젙 諛?????뺤쓽 媛쒖꽑
+49ed055|03-14 21:36|feat: RTDB 湲곕컲 ?щ’ ?덉빟 ?쒖뒪??援ы쁽 諛?愿由ъ옄 ?섏씠吏 ?꾨㈃ 媛쒗렪
