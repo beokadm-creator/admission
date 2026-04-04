@@ -218,7 +218,7 @@ export default function SmartQueueGate() {
   const isOpen = !!openTimeMs && now >= openTimeMs;
   const openDateLabel = formatDateLabel(openTimeMs);
   const countdownParts = getCountdownParts(Math.max(0, openTimeMs - now));
-  const gateHeadline = '오픈 시간에 버튼을 눌러 대기번호를 받고, 순서가 되면 신청서를 작성합니다.';
+  const gateHeadline = schoolConfig?.heroMessage?.trim() || '오픈 시간에 버튼을 눌러 대기번호를 받고, 순서가 되면 신청서를 작성합니다.';
   const programInfo =
     schoolConfig?.programInfo?.trim() ||
     '행사 개요, 준비물, 유의사항은 아래 프로그램 안내 영역에서 바로 확인하실 수 있습니다.';
@@ -819,7 +819,7 @@ export default function SmartQueueGate() {
                   <div>
                     <p className="text-xs font-bold uppercase tracking-[0.3em] text-white/70">행사 안내</p>
                     <h1 className="mt-2 text-2xl font-bold leading-tight sm:text-4xl">{schoolConfig?.name || "행사 신청 시스템"}</h1>
-                    <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/85 sm:text-base">
+                    <p className="mt-2 max-w-2xl whitespace-pre-line text-sm leading-relaxed text-white/85 sm:text-base">
                       {gateHeadline}
                     </p>
                   </div>
