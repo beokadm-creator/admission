@@ -458,8 +458,8 @@ export default function SmartQueueGate() {
       ? '곧 신청서로 이동됩니다. 이 화면을 유지해 주세요.'
     : suppressCompletedAutoEntry
       ? recentCompletion?.status === 'waitlisted'
-        ? '예비 접수가 완료되었습니다. 조회 페이지에서 결과를 확인해 주세요.'
-        : '신청이 완료되었습니다. 조회 페이지에서 결과를 확인해 주세요.'
+        ? '이전 차수에서 이미 예비 접수가 완료되어 다른 차수에 지원할 수 없습니다. 상단의 조회 메뉴에서 결과를 확인해 주세요.'
+        : '이전 차수에서 이미 신청이 완료되어 다른 차수에 지원할 수 없습니다. 상단의 조회 메뉴에서 결과를 확인해 주세요.'
     : myEntry?.status === 'expired'
       ? '작성 가능 시간이 만료되었습니다. 다시 신청하려면 대기열에 다시 입장해 번호를 받아야 합니다.'
       : joinCooldownActive
@@ -1014,7 +1014,7 @@ export default function SmartQueueGate() {
               <div className="mt-3 space-y-2 text-sm leading-relaxed text-gray-600">
                 <p>접수는 {openDateLabel}에 시작됩니다.</p>
                 <p>오픈 시간에 버튼을 누르면 대기번호가 발급됩니다.</p>
-                <p>대기번호는 선착순 {queueJoinLimit.toLocaleString()}번까지만 발급됩니다.</p>
+                <p>대기번호는 선착순 {queueJoinLimit.toLocaleString()}번까지 발급되며, 정원이 차면 신청이 마감됩니다.</p>
                 <p className="font-medium text-gray-700">대기번호를 받았더라도 정원이 소진되면 신청서를 작성하지 못할 수 있습니다.</p>
                 <p className="font-medium text-gray-700">신청서를 작성하더라도 번호 순서에 따라 확정 또는 예비로 결과가 나뉩니다.</p>
                 <p>1차에서 신청하지 못한 경우 2차 오픈 시각에 다시 대기열에 입장할 수 있습니다.</p>

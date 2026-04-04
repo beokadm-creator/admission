@@ -1,4 +1,4 @@
-﻿import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions';
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import * as functionsV1 from 'firebase-functions/v1';
 import * as admin from 'firebase-admin';
@@ -156,6 +156,14 @@ function getResolvedAdmissionRound(schoolData: admin.firestore.DocumentData, now
     throw new functions.https.HttpsError('failed-precondition', '모집 차수가 설정되지 않았습니다.');
   }
 
+  const round2 = rounds.find((r) => r.id === 'round2');
+  if (round2 && round2.openDateTime) {
+    const round2Open = new Date(round2.openDateTime).getTime();
+    if (!Number.isNaN(round2Open) && round2Open <= now) {
+      return round2;
+    }
+  }
+
   const openedRounds = rounds.filter((round) => {
     const openTime = new Date(round.openDateTime || 0).getTime();
     return openTime && !Number.isNaN(openTime) && now >= openTime;
@@ -231,7 +239,9 @@ function requestLockRef(db: admin.firestore.Firestore, schoolId: string, request
 }
 
 function queueIdentityLockRef(db: admin.firestore.Firestore, schoolId: string, roundId: string, identityHash: string) {
-  return db.doc(`schools/${schoolId}/queueIdentityLocks/${roundId}_${identityHash}`);
+  // roundId is intentionally ignored here to make the lock global for the school.
+  // This explicitly blocks a user who succeeded in round 1 from applying in round 2.
+  return db.doc(`schools/${schoolId}/queueIdentityLocks/${identityHash}`);
 }
 
 function makeJoinQueueError(
@@ -1230,7 +1240,7 @@ export const joinQueue = hotPathRuntime.https.onCall(async (request: any, legacy
             identityLock.status === 'reserved'
               ? `${buildQueueIdentityInUseMessage(sanitizedIdentity.studentName, sanitizedIdentity.phoneLast4)} 신청서 작성 시간이 아직 남아 있습니다.`
               : identityLock.status === 'confirmed' || identityLock.status === 'waitlisted'
-                ? `${sanitizedIdentity.studentName} (${sanitizedIdentity.phoneLast4}) 정보로 이미 신청이 접수되어 있습니다. 조회 페이지에서 결과를 확인해 주세요.`
+                ? `${sanitizedIdentity.studentName} (${sanitizedIdentity.phoneLast4}) 정보로 이미 이전 차수에서 신청이 완료되어 다른 차수에 지원할 수 없습니다. 조회 페이지에서 결과를 확인해 주세요.`
                 : buildQueueIdentityInUseMessage(sanitizedIdentity.studentName, sanitizedIdentity.phoneLast4);
           throw new functions.https.HttpsError('already-exists', statusMessage);
         }

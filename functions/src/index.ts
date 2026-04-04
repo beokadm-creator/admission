@@ -208,9 +208,9 @@ export const onRegistrationDelete = firestoreTriggers
         updatedAt
       }, { merge: true });
 
-      if (deletedData?.queueIdentityHash && roundMeta.roundId) {
+      if (deletedData?.queueIdentityHash) {
         transaction.delete(
-          admin.firestore().doc(`schools/${schoolId}/queueIdentityLocks/${roundMeta.roundId}_${deletedData.queueIdentityHash}`)
+          admin.firestore().doc(`schools/${schoolId}/queueIdentityLocks/${deletedData.queueIdentityHash}`)
         );
       }
     });

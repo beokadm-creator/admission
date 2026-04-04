@@ -74,6 +74,14 @@ export function getCurrentAdmissionRound(schoolConfig?: Partial<SchoolConfig> | 
     return null;
   }
 
+  const round2 = rounds.find((r) => r.id === 'round2');
+  if (round2 && round2.openDateTime) {
+    const round2Open = new Date(round2.openDateTime).getTime();
+    if (!Number.isNaN(round2Open) && round2Open <= now) {
+      return round2;
+    }
+  }
+
   const openedRounds = rounds.filter((round) => {
     const openTime = new Date(round.openDateTime || 0).getTime();
     return openTime && !Number.isNaN(openTime) && now >= openTime;
