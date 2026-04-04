@@ -1590,7 +1590,7 @@ export const startRegistrationSession = standardRuntime.https.onCall(async (requ
   return transactionResult.response;
 });
 
-export const getReservationSession = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
+export const getReservationSession = standardRuntime.https.onCall(async (request: any, legacyContext?: any) => {
   const db = admin.firestore();
   const { data, auth } = normalizeCallableRequest(request, legacyContext);
   if (!auth) {
@@ -2002,7 +2002,7 @@ export const confirmReservation = standardRuntime.https.onCall(async (request: a
   return transactionResult.response;
 });
 
-export const cleanupExpiredReservations = functionsV1.pubsub
+export const cleanupExpiredReservations = schedulerRuntime.pubsub
   .schedule('* * * * *')
   .timeZone('Asia/Seoul')
   .onRun(async () => {
