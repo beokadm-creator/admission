@@ -1007,15 +1007,7 @@ export default function SmartQueueGate() {
                   {primaryActionLabel}
                   {!joining && <ArrowRight className="ml-2 h-5 w-5" />}
                 </button>
-              ) : isNearTurnWaiting ? null : suppressCompletedAutoEntry ? (
-                <Link
-                  to={`/${schoolId}/lookup`}
-                  className="flex min-h-[56px] w-full items-center justify-center rounded-2xl bg-snu-blue px-5 py-4 text-base font-bold text-white transition hover:bg-snu-dark sm:min-h-[60px]"
-                >
-                  신청 내역 조회하기
-                  <ArrowRight className="ml-2 h-5 w-5" />
-                </Link>
-              ) : canEnter ? (
+              ) : isNearTurnWaiting ? null : suppressCompletedAutoEntry ? null : canEnter ? (
                 <button
                   onClick={() => void startRegistration()}
                   disabled={starting}
@@ -1185,14 +1177,7 @@ export default function SmartQueueGate() {
                   ? '이름·전화번호를 먼저 입력해 주세요'
                   : primaryActionLabel}
               </button>
-            ) : isNearTurnWaiting ? null : suppressCompletedAutoEntry ? (
-              <Link
-                to={`/${schoolId}/lookup`}
-                className="flex min-h-[54px] flex-1 items-center justify-center rounded-2xl bg-snu-blue px-4 text-sm font-bold text-white"
-              >
-                신청 조회
-              </Link>
-            ) : canEnter ? (
+            ) : isNearTurnWaiting ? null : suppressCompletedAutoEntry ? null : canEnter ? (
               <button
                 onClick={() => void startRegistration()}
                 disabled={starting}
