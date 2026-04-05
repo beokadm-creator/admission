@@ -939,29 +939,48 @@ export default function SmartQueueGate() {
 
         <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
           <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-2xl border border-snu-blue/10 bg-snu-blue/[0.03] p-5">
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-500">MY STATUS</p>
-                <p className="mt-3 text-4xl font-bold tracking-tight text-snu-blue sm:text-5xl">{myNumber ?? '--'}</p>
-                <p className="mt-2 text-xs text-gray-500">내 대기번호</p>
+            {suppressCompletedAutoEntry ? (
+              <div className="flex flex-col items-center py-4 text-center">
+                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-green-50">
+                  <CheckCircle2 className="h-7 w-7 text-green-600" />
+                </div>
+                <h3 className="mb-2 text-lg font-bold text-gray-900">신청이 완료되었습니다</h3>
+                <p className="mb-6 text-sm leading-relaxed text-gray-500">{effectiveButtonStatusMessage}</p>
+                <Link
+                  to={`/${schoolId}/lookup`}
+                  className="flex min-h-[52px] w-full items-center justify-center rounded-2xl bg-snu-blue px-5 py-4 text-base font-bold text-white transition hover:bg-snu-dark"
+                >
+                  신청 내역 조회하기
+                  <ArrowRight className="ml-2 h-5 w-5" />
+                </Link>
               </div>
-              <div className="rounded-2xl border border-gray-100 bg-gray-50 p-5 text-right">
-                <p className="text-xs font-bold uppercase tracking-[0.1em] text-gray-400">WAITING</p>
-                <p className="mt-2 text-2xl font-bold text-gray-900 sm:text-3xl">{waitingDisplayValue}</p>
-                <p className="mt-2 text-xs text-gray-500">{waitingDisplayHelper}</p>
-              </div>
-            </div>
+            ) : (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-snu-blue/10 bg-snu-blue/[0.03] p-5">
+                    <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-500">MY STATUS</p>
+                    <p className="mt-3 text-4xl font-bold tracking-tight text-snu-blue sm:text-5xl">{myNumber ?? '--'}</p>
+                    <p className="mt-2 text-xs text-gray-500">내 대기번호</p>
+                  </div>
+                  <div className="rounded-2xl border border-gray-100 bg-gray-50 p-5 text-right">
+                    <p className="text-xs font-bold uppercase tracking-[0.1em] text-gray-400">WAITING</p>
+                    <p className="mt-2 text-2xl font-bold text-gray-900 sm:text-3xl">{waitingDisplayValue}</p>
+                    <p className="mt-2 text-xs text-gray-500">{waitingDisplayHelper}</p>
+                  </div>
+                </div>
 
-            <div className="mt-4 rounded-2xl border border-gray-100 bg-white p-4 text-sm leading-relaxed text-gray-600">
-              {myStatusMessage}
-            </div>
-            {myNumber !== null && remainingCapacity <= 0 && !canEnter && (
-              <Link
-                to={`/${schoolId}`}
-                className="mt-3 flex min-h-[44px] w-full items-center justify-center rounded-xl border border-gray-300 bg-white px-4 text-sm font-bold text-gray-700 transition hover:bg-gray-50"
-              >
-                메인으로 이동 <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
+                <div className="mt-4 rounded-2xl border border-gray-100 bg-white p-4 text-sm leading-relaxed text-gray-600">
+                  {myStatusMessage}
+                </div>
+                {myNumber !== null && remainingCapacity <= 0 && !canEnter && (
+                  <Link
+                    to={`/${schoolId}`}
+                    className="mt-3 flex min-h-[44px] w-full items-center justify-center rounded-xl border border-gray-300 bg-white px-4 text-sm font-bold text-gray-700 transition hover:bg-gray-50"
+                  >
+                    메인으로 이동 <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                )}
+              </>
             )}
 
             {!myEntry || myEntry.status === 'expired' ? (
@@ -1041,10 +1060,13 @@ export default function SmartQueueGate() {
               )}
             </div>
 
-            <div className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm leading-relaxed text-gray-600">
-              <p>{effectiveButtonStatusMessage}</p>
-            </div>
+            {!suppressCompletedAutoEntry && (
+              <div className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm leading-relaxed text-gray-600">
+                <p>{effectiveButtonStatusMessage}</p>
+              </div>
+            )}
 
+            {!suppressCompletedAutoEntry && (
             <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-4">
               <p className="text-sm font-bold text-gray-900">이용 안내</p>
               <div className="mt-3 space-y-2 text-sm leading-relaxed text-gray-600">
@@ -1055,6 +1077,7 @@ export default function SmartQueueGate() {
                 <p>1차에서 접수하지 못한 경우, 이탈자 발생 시 2차 예비번호 순서로 확정될 수 있습니다.</p>
               </div>
             </div>
+            )}
 
             <section className="mt-4 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
               <h2 className="text-lg font-bold text-gray-900">프로그램 안내</h2>
