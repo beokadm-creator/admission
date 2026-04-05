@@ -330,28 +330,12 @@ export default function SmartQueueGate() {
   }, []);
 
   useEffect(() => {
+    // 기존 세션이 있는 경우(재방문자)에만 즉시 UID를 설정한다.
+    // 신규 방문자는 signInAnonymously를 페이지 로드 시 호출하지 않고,
+    // 대기열 진입 버튼을 눌렀을 때(ensureQueueUserId)에만 생성한다.
     if (auth.currentUser?.uid) {
       setUserId(auth.currentUser.uid);
-      return;
     }
-
-    let cancelled = false;
-
-    void getQueueUserId()
-      .then((nextUserId) => {
-        if (!cancelled) {
-          setUserId(nextUserId);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setErrorMessage('로그인 정보를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.');
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
   }, [queueEnabled]);
 
   useEffect(() => {
