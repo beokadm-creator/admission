@@ -12,6 +12,7 @@ import {
 } from './shared/queueShared';
 export {
   autoAdvanceQueue,
+  cleanupAnonymousAuthUsers,
   cleanupExpiredReservations,
   confirmReservation,
   forceExpireSession,
