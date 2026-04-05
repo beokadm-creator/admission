@@ -71,7 +71,7 @@ service cloud.firestore {
       }
 
       match /queueState/{docId} {
-        allow read: if isAuthenticated();
+        allow read: if true;
         allow create: if isQueueStateAdminCreate(schoolId);
         allow update: if isQueueStateAdminUpdate(schoolId);
         allow delete: if false;

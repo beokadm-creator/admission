@@ -203,6 +203,7 @@ export default function SmartQueueGate() {
   const [queueIdentity, setQueueIdentity] = useState<QueueIdentityInput>({ studentName: '', phone: '' });
   const [identityHydrated, setIdentityHydrated] = useState(false);
   const [closedRounds, setClosedRounds] = useState<Record<string, JoinClosureState>>({});
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
 
   const autoStartedRef = useRef(false);
   const joinRequestIdRef = useRef<string | null>(null);
@@ -319,6 +320,23 @@ export default function SmartQueueGate() {
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  // 모바일 소프트 키보드 등장 시 하단 고정 바를 키보드 위로 올린다.
+  // iOS Safari는 키보드가 fixed 요소를 덮기 때문에 visualViewport로 보정한다.
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const update = () => {
+      const offset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      setKeyboardOffset(offset);
+    };
+    viewport.addEventListener('resize', update);
+    viewport.addEventListener('scroll', update);
+    return () => {
+      viewport.removeEventListener('resize', update);
+      viewport.removeEventListener('scroll', update);
+    };
   }, []);
 
   useEffect(() => {
@@ -604,6 +622,19 @@ export default function SmartQueueGate() {
     const requestId = createRequestId('joinQueue');
     const targetRoundId = selectedRound?.id || 'round1';
     joinRequestIdRef.current = requestId;
+
+    // Auth 생성 전 소프트 한도 체크: 정원의 1.5배 초과 시 차단
+    // queueState.lastAssignedNumber는 실제 발급된 번호 수이므로
+    // 이 시점에서 차단하면 초과 인원의 익명 Auth가 생성되지 않는다.
+    const softLimit = Math.ceil(queueJoinLimit * 1.5);
+    if (queueState.lastAssignedNumber >= softLimit) {
+      setClosedRounds((prev) => ({
+        ...prev,
+        [targetRoundId]: { reason: 'QUEUE_CLOSED', message: '대기열 접수가 마감되었습니다.' }
+      }));
+      setJoining(false);
+      return;
+    }
 
     try {
       await ensureQueueUserId();
@@ -994,14 +1025,17 @@ export default function SmartQueueGate() {
                   <input
                     value={queueIdentity.studentName}
                     onChange={(event) => setQueueIdentity((prev) => ({ ...prev, studentName: event.target.value }))}
-                    placeholder='이름'
+                    placeholder="이름"
+                    autoComplete="name"
                     className="min-h-[52px] rounded-2xl border border-gray-200 bg-white px-4 text-base text-gray-900 outline-none transition focus:border-snu-blue focus:ring-2 focus:ring-snu-blue/10"
                   />
                   <input
                     value={queueIdentity.phone}
                     onChange={(event) => setQueueIdentity((prev) => ({ ...prev, phone: normalizeQueuePhone(event.target.value) }))}
+                    type="tel"
                     inputMode="numeric"
-                    placeholder='휴대폰 번호 (01012345678)'
+                    placeholder="010-0000-0000"
+                    autoComplete="tel"
                     className="min-h-[52px] rounded-2xl border border-gray-200 bg-white px-4 text-base text-gray-900 outline-none transition focus:border-snu-blue focus:ring-2 focus:ring-snu-blue/10"
                   />
                 </div>
@@ -1156,26 +1190,32 @@ export default function SmartQueueGate() {
         </div>
 
         {/* ───────── 모바일 하단 고정 바 ───────── */}
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-white/97 shadow-[0_-12px_30px_rgba(15,23,42,0.10)] backdrop-blur sm:hidden">
+        <div
+          className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-white/97 shadow-[0_-12px_30px_rgba(15,23,42,0.10)] backdrop-blur sm:hidden"
+          style={keyboardOffset > 0 ? { bottom: `${keyboardOffset}px` } : undefined}
+        >
           {/* 이름·전화번호 미입력 상태면 인라인 폼 표시 */}
           {(!myEntry || myEntry.status === 'expired') && !queueIdentityReady && (
             <div className="border-b border-gray-100 px-4 py-3">
               <p className="mb-2 text-xs font-bold text-gray-500">
                 ✍️ 이름과 휴대폰 번호를 입력해야 대기열에 입장할 수 있습니다.
               </p>
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2">
                 <input
                   value={queueIdentity.studentName}
                   onChange={(e) => setQueueIdentity((prev) => ({ ...prev, studentName: e.target.value }))}
                   placeholder="이름"
-                  className="min-h-[44px] flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 outline-none focus:border-snu-blue focus:ring-2 focus:ring-snu-blue/10"
+                  autoComplete="name"
+                  className="min-h-[48px] w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-base text-gray-900 outline-none focus:border-snu-blue focus:ring-2 focus:ring-snu-blue/10"
                 />
                 <input
                   value={queueIdentity.phone}
                   onChange={(e) => setQueueIdentity((prev) => ({ ...prev, phone: normalizeQueuePhone(e.target.value) }))}
+                  type="tel"
                   inputMode="numeric"
                   placeholder="010-0000-0000"
-                  className="min-h-[44px] flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 outline-none focus:border-snu-blue focus:ring-2 focus:ring-snu-blue/10"
+                  autoComplete="tel"
+                  className="min-h-[48px] w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-base text-gray-900 outline-none focus:border-snu-blue focus:ring-2 focus:ring-snu-blue/10"
                 />
               </div>
             </div>
