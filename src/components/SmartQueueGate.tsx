@@ -408,11 +408,11 @@ export default function SmartQueueGate() {
   const showLookupButton = !!schoolConfig?.buttonSettings?.showLookupButton && !hasActiveQueueEntry;
   const estimatedWaitMinutes =
     waitingAhead > 0 ? Math.max(1, Math.ceil((waitingAhead / Math.max(maxActiveSessions, 1)) * 3)) : 0;
-  const remainingRegular = Math.max(0, regularCapacity - Math.min(queueState.confirmedCount, regularCapacity));
-  const remainingWaitlist = Math.max(0, waitlistCapacity - Math.min(queueState.waitlistedCount, waitlistCapacity));
   const completedCount = queueState.confirmedCount + queueState.waitlistedCount;
   const waitingCount = Math.max(0, queueState.lastAssignedNumber - queueState.currentNumber);
   const remainingCapacity = Math.max(0, queueState.totalCapacity - completedCount);
+  const remainingRegular = remainingCapacity > 0 ? Math.max(0, regularCapacity - Math.min(queueState.confirmedCount, regularCapacity)) : 0;
+  const remainingWaitlist = remainingCapacity > 0 ? Math.max(0, waitlistCapacity - Math.min(queueState.waitlistedCount, waitlistCapacity)) : 0;
   const queueJoinLimit = Math.max(1, getAdmissionRoundTotal(selectedRound));
   const closedRoundState = selectedRound?.id ? closedRounds[selectedRound.id] : undefined;
   const queueLimitReached = !myEntry && (
