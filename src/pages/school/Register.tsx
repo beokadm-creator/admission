@@ -28,6 +28,7 @@ interface ReservationSessionResponse {
 interface ConfirmReservationResponse {
   success?: boolean;
   status?: 'confirmed' | 'waitlisted';
+  rank?: number | null;
 }
 
 interface TermsAccordionProps {
@@ -336,7 +337,7 @@ export default function RegisterPage() {
         status: result.data.status || 'confirmed',
         completedAt: Date.now()
       });
-      navigate(`/${schoolId}/complete`, { state: { status: result.data.status || 'confirmed' } });
+      navigate(`/${schoolId}/complete`, { state: { status: result.data.status === 'waitlisted' ? 'waitlisted' : 'confirmed', rank: result.data.rank ?? null } });
     } catch (error: unknown) {
       confirmRequestIdRef.current = null;
       console.error('[Registration] Error:', error);

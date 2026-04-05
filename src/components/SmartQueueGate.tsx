@@ -242,12 +242,14 @@ export default function SmartQueueGate() {
   const suppressCompletedAutoEntry = recentCompletionMatchesIdentity && !!recentCompletion;
   const friendlyErrorMessage = useMemo(() => {
     if (!errorMessage) return null;
+    if (errorMessage.includes('조회 페이지에서 결과를 확인')) {
+      return '입력하신 이름 또는 전화번호로 이미 신청이 완료되어 있습니다. 상단의 조회 메뉴에서 결과를 확인해 주세요.';
+    }
     if (
       errorMessage.includes('이미 진행 중인 대기열')
       || errorMessage.includes('이미 요청이 접수')
       || errorMessage.includes('이미 신청이 접수')
       || errorMessage.includes('이미 같은 휴대폰 번호')
-      || errorMessage.includes('조회 페이지에서 결과를 확인')
     ) {
       return errorMessage;
     }
