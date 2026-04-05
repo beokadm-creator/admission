@@ -173,8 +173,8 @@ export const onRegistrationDelete = firestoreTriggers
     }
 
     const schoolRef = admin.firestore().doc(`schools/${schoolId}`);
-    const roundMeta = getSchoolRoundCapacity((deletedData || {}) as any, deletedData?.admissionRoundId);
-    const queueStateRef = admin.firestore().doc(`schools/${schoolId}/queueState/${roundMeta.roundId}`);
+    const roundId = deletedData?.admissionRoundId || 'round1';
+    const queueStateRef = admin.firestore().doc(`schools/${schoolId}/queueState/${roundId}`);
 
     await admin.firestore().runTransaction(async (transaction) => {
       const [schoolDoc, queueStateDoc] = await Promise.all([
@@ -189,7 +189,8 @@ export const onRegistrationDelete = firestoreTriggers
       const schoolData = schoolDoc.data()!;
       const confirmedCount = Math.max(0, Number(schoolData.stats?.confirmedCount || 0) - (status === 'confirmed' ? 1 : 0));
       const waitlistedCount = Math.max(0, Number(schoolData.stats?.waitlistedCount || 0) - (status === 'waitlisted' ? 1 : 0));
-      const totalCapacity = Number(queueStateDoc.data()?.totalCapacity || roundMeta.totalCapacity);
+      const schoolRoundMeta = getSchoolRoundCapacity(schoolData, roundId);
+      const totalCapacity = Number(queueStateDoc.data()?.totalCapacity || schoolRoundMeta.totalCapacity);
       const activeReservationCount = Number(queueStateDoc.data()?.activeReservationCount || 0);
       const updatedAt = Date.now();
 
