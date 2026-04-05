@@ -2297,3 +2297,36 @@ export const resetSchoolState = functionsV1.https.onCall(async (request: any, le
     throw error;
   }
 });
+
+export const cleanupAnonymousAuthUsers = functionsV1.https.onCall(async (request: any, legacyContext?: any) => {
+  const db = admin.firestore();
+  const { auth } = normalizeCallableRequest(request, legacyContext);
+  if (!auth) {
+    throw new functions.https.HttpsError('unauthenticated', '로그인이 필요합니다.');
+  }
+
+  const adminSnapshot = await db.doc(`admins/${auth.uid}`).get();
+  const adminData = adminSnapshot.data();
+  if (!adminSnapshot.exists || !adminData || adminData.role !== 'MASTER') {
+    throw new functions.https.HttpsError('permission-denied', 'MASTER 권한이 필요합니다.');
+  }
+
+  let deletedCount = 0;
+  let pageToken: string | undefined;
+
+  do {
+    const listResult = await admin.auth().listUsers(1000, pageToken);
+    const anonymousUids = listResult.users
+      .filter(user => user.providerData.length === 0)
+      .map(user => user.uid);
+
+    if (anonymousUids.length > 0) {
+      const deleteResult = await admin.auth().deleteUsers(anonymousUids);
+      deletedCount += deleteResult.successCount;
+    }
+
+    pageToken = listResult.pageToken;
+  } while (pageToken);
+
+  return { success: true, deletedCount };
+});

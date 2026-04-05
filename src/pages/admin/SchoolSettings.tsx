@@ -215,6 +215,7 @@ export default function SchoolSettings() {
   const [templateLoadError, setTemplateLoadError] = useState<string | null>(null);
   const [templateLoadSuccess, setTemplateLoadSuccess] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [cleaningAuth, setCleaningAuth] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [emergencyNoticeText, setEmergencyNoticeText] = useState('');
@@ -552,6 +553,29 @@ export default function SchoolSettings() {
       alert('초기화 중 오류가 발생했습니다: ' + (error.message || '알 수 없는 오류'));
     } finally {
       setResetting(false);
+    }
+  };
+
+  const handleCleanupAuth = async () => {
+    if (!window.confirm('경고: 모든 익명 사용자(Anonymous Auth)를 삭제합니다.\n관리자 계정은 유지됩니다. 계속하시겠습니까?')) return;
+
+    const confirmInput = prompt('삭제를 위해 "익명삭제" 라고 정확히 입력해 주세요.');
+    if (confirmInput !== '익명삭제') {
+      alert('입력된 문구가 정확하지 않습니다.');
+      return;
+    }
+
+    setCleaningAuth(true);
+    try {
+      const cleanupFn = httpsCallable(functions, 'cleanupAnonymousAuthUsers');
+      const result = await cleanupFn({});
+      const data = result.data as { success: boolean; deletedCount: number };
+      alert(`익명 사용자 ${data.deletedCount}명이 삭제되었습니다.`);
+    } catch (error: any) {
+      console.error('Auth cleanup error:', error);
+      alert('삭제 중 오류가 발생했습니다: ' + (error.message || '알 수 없는 오류'));
+    } finally {
+      setCleaningAuth(false);
     }
   };
 
@@ -1465,7 +1489,7 @@ export default function SchoolSettings() {
                 <div className="mt-3 flex flex-col justify-between gap-4 md:flex-row md:items-center">
                   <div>
                     <p className="text-sm font-semibold text-gray-900">학교 데이터 전체 초기화</p>
-                    <p className="text-xs text-gray-500">모든 신청 내역, 대기열, 예약 세션, 통계를 0으로 리셋합니다. 복구할 수 없습니다.</p>
+                    <p className="text-xs text-gray-500">모든 신청 내역, 대기열, 예약 세션, 통계, RTDB 카운터를 0으로 리셋합니다. 복구할 수 없습니다.</p>
                   </div>
                   <button
                     type="button"
@@ -1474,6 +1498,20 @@ export default function SchoolSettings() {
                     className="rounded-xl border border-rose-200 bg-white px-5 py-2.5 text-sm font-bold text-rose-600 transition-colors hover:bg-rose-50 disabled:opacity-50"
                   >
                     {resetting ? '초기화 중...' : '전체 데이터 초기화'}
+                  </button>
+                </div>
+                <div className="mt-4 border-t border-rose-100 pt-4 flex flex-col justify-between gap-4 md:flex-row md:items-center">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">익명 사용자(Auth) 전체 삭제</p>
+                    <p className="text-xs text-gray-500">Firebase에 누적된 익명 Auth 사용자를 모두 삭제합니다. 관리자 계정은 유지됩니다. 복구할 수 없습니다.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCleanupAuth}
+                    disabled={cleaningAuth}
+                    className="rounded-xl border border-rose-200 bg-white px-5 py-2.5 text-sm font-bold text-rose-600 transition-colors hover:bg-rose-50 disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {cleaningAuth ? '삭제 중...' : '익명 사용자 삭제'}
                   </button>
                 </div>
               </div>
