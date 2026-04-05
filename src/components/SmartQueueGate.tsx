@@ -339,7 +339,7 @@ export default function SmartQueueGate() {
   }, [queueEnabled]);
 
   useEffect(() => {
-    if (!schoolId || !userId) return;
+    if (!schoolId) return;
 
     const queueStateDocId = selectedRound?.id || 'round1';
     const unsubscribe = onSnapshot(
@@ -366,7 +366,7 @@ export default function SmartQueueGate() {
     );
 
     return () => unsubscribe();
-  }, [schoolId, totalCapacity, selectedRound?.id, userId]);
+  }, [schoolId, totalCapacity, selectedRound?.id]);
 
   useEffect(() => {
     if (!schoolId || !userId) return;
