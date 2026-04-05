@@ -439,7 +439,7 @@ export default function SmartQueueGate() {
   const waitingDisplayValue = myNumber === null ? '-' : waitingAhead.toLocaleString();
   const waitingDisplayHelper =
     myNumber === null
-      ? '대기번호를 받으면 여기에 표시됩니다.'
+      ? '대기열에 진입하면 여기에 표시됩니다.'
       : waitingAhead > 0
         ? `예상 대기 시간 약 ${estimatedWaitMinutes}분입니다.`
         : canEnter
@@ -469,15 +469,15 @@ export default function SmartQueueGate() {
         ? `요청을 다시 준비 중입니다. ${joinCooldownSeconds}초 후 다시 시도해 주세요.`
         : queueLimitReached
           ? `대기열 접수는 ${queueJoinLimit.toLocaleString()}번에서 마감되었습니다. 이미 번호를 받은 분들만 신청을 진행할 수 있습니다.`
-          : joinDisabledReason || '아래 버튼을 눌러 대기번호를 발급받고 순서에 따라 신청을 진행해 주세요.';
+          : joinDisabledReason || '아래 버튼을 눌러 대기열에 진입하고 순서에 따라 신청을 진행해 주세요.';
   const effectiveButtonStatusMessage =
     queueLimitReached && closedRoundState?.message
       ? closedRoundState.message
       : buttonStatusMessage;
   const primaryActionLabel = joining
     ? joiningElapsed >= 10
-      ? `서버가 처리 중입니다 (${joiningElapsed}초)... 화면을 닫지 마세요`
-      : `${selectedRound?.label || ''} 대기번호 발급 중...`
+      ? `접속 인원이 많아 순차적으로 확인 중입니다 (${joiningElapsed}초)... 화면을 닫지 마세요`
+      : `${selectedRound?.label || ''} 대기열 진입 시도 중...`
     : joinCooldownActive
       ? `${joinCooldownSeconds}초 후 다시 시도`
       : myEntry?.status === 'expired'
@@ -559,7 +559,7 @@ export default function SmartQueueGate() {
       if (remainingCapacity <= 0) {
         return '현재 모집 정원과 예비 정원이 모두 마감되었습니다.';
       }
-      return '버튼을 누르면 대기번호가 발급되며, 번호 순서에 따라 신청서 작성이 가능합니다.';
+      return '버튼을 누르면 대기열에 진입하며, 순서가 되면 신청서 작성이 가능합니다.';
     }
 
     if (canEnter) {
@@ -860,9 +860,9 @@ export default function SmartQueueGate() {
                         <p className={`mt-2 text-[11px] leading-relaxed sm:mt-3 sm:text-xs ${isSelected ? 'text-snu-blue/70' : 'text-white/75'}`}>
                           {isSelected
                             ? (roundIsOpen
-                                ? (remainingCapacity <= 0 || queueLimitReached ? '마감되었습니다' : '지금 바로 작성 가능합니다')
+                                ? (remainingCapacity <= 0 || queueLimitReached ? '마감되었습니다' : '대기열 입장 가능합니다')
                                 : `오픈까지 ${formatCountdown(Math.max(0, roundOpenTime - now))}`)
-                            : (roundIsOpen ? '현재 신청 가능합니다. 클릭하여 바로 입장하세요.' : `오픈까지 ${formatCountdown(Math.max(0, roundOpenTime - now))}`)}
+                            : (roundIsOpen ? '현재 접수 중입니다. 클릭하여 확인하세요.' : `오픈까지 ${formatCountdown(Math.max(0, roundOpenTime - now))}`)}
                         </p>
                         <p className={`mt-2 text-[11px] font-semibold sm:mt-3 ${isSelected ? 'text-snu-blue/80' : 'text-white/70'}`}>
                           {isSelected ? selectedRoundStatusLabel : (roundIsOpen ? '진행 중' : '대기 중')}
@@ -875,7 +875,7 @@ export default function SmartQueueGate() {
 
               <div className="rounded-3xl border border-white/15 bg-white/10 p-5 backdrop-blur-sm sm:p-6">
                 <p className="text-xl font-bold leading-tight sm:text-3xl">
-                  {remainingCapacity <= 0 || queueLimitReached ? `${selectedRound?.label || "선택 차수"} 마감` : isOpen ? `${selectedRound?.label || "선택 차수"} 신청서 작성 바로 시작` : `${selectedRound?.label || "선택 차수"} 오픈 대기`}
+                  {remainingCapacity <= 0 || queueLimitReached ? `${selectedRound?.label || "선택 차수"} 마감` : isOpen ? `${selectedRound?.label || "선택 차수"} 신청 접수 진행 중` : `${selectedRound?.label || "선택 차수"} 오픈 대기`}
                 </p>
                 <p className="mt-2 text-sm text-white/80">{openDateLabel}</p>
                 <div className="mt-5 rounded-2xl border border-white/15 bg-black/10 p-4">
@@ -1024,7 +1024,7 @@ export default function SmartQueueGate() {
               <p className="text-sm font-bold text-gray-900">이용 안내</p>
               <div className="mt-3 space-y-2 text-sm leading-relaxed text-gray-600">
                 <p>접수는 {openDateLabel}에 시작됩니다.</p>
-                <p>오픈 시간에 버튼을 누르면 대기번호가 발급됩니다.</p>
+                <p>오픈 시간에 버튼을 누르면 대기열 진입을 시도합니다.</p>
                 <p>대기번호는 선착순 {queueJoinLimit.toLocaleString()}번까지 발급되며, 정원이 차면 신청이 마감됩니다.</p>
                 <p className="font-medium text-gray-700">대기번호를 받았더라도 정원이 소진되면 신청서를 작성하지 못할 수 있습니다.</p>
                 <p className="font-medium text-gray-700">신청서를 작성하더라도 번호 순서에 따라 확정 또는 예비로 결과가 나뉩니다.</p>
@@ -1081,8 +1081,8 @@ export default function SmartQueueGate() {
                 <FlowCard
                   tone="indigo"
                   step="1"
-                  title="대기번호 발급"
-                  body={`오픈 시각에 버튼을 눌러 대기번호를 받습니다. 번호가 있어도 정원(${queueState.totalCapacity.toLocaleString()}명)이 소진되면 신청서를 작성하지 못할 수 있습니다.`}
+                  title="대기열 진입 시도"
+                  body={`오픈 시각에 버튼을 눌러 대기열 진입을 시도합니다. 접속 폭주 시 진입이 지연될 수 있으며, 번호를 받아도 정원(${queueState.totalCapacity.toLocaleString()}명)이 소진되면 신청서를 작성하지 못할 수 있습니다.`}
                 />
                 <FlowCard
                   tone="amber"
