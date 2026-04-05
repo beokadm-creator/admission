@@ -595,20 +595,30 @@ export default function RegisterPage() {
 
               {schoolConfig.formFields.collectSchoolName && (
                 <div>
-                  <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">학교명</label>
+                  <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">
+                    학교명 <span className="font-normal text-red-500">*</span>
+                  </label>
                   <input
-                    {...register('schoolName')}
+                    {...register('schoolName', { required: true })}
                     className="block min-h-[56px] w-full rounded-md border border-gray-100 bg-gray-50/50 p-4 text-base font-medium transition-all focus:border-snu-blue focus:bg-white focus:ring-1 focus:ring-snu-blue"
                     placeholder="현재 재학 중인 학교명을 입력해 주세요"
                   />
+                  {errors.schoolName && (
+                    <span className="mt-2 flex items-center text-sm font-bold tracking-tight text-red-500">
+                      <AlertTriangle className="mr-1.5 h-4 w-4" />
+                      학교명을 입력해 주세요.
+                    </span>
+                  )}
                 </div>
               )}
 
               {schoolConfig.formFields.collectGrade && (
                 <div>
-                  <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">학년</label>
+                  <label className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">
+                    학년 <span className="font-normal text-red-500">*</span>
+                  </label>
                   <select
-                    {...register('grade')}
+                    {...register('grade', { required: true, validate: value => value !== '' || '학년을 선택해 주세요.' })}
                     className="block min-h-[56px] w-full rounded-md border border-gray-100 bg-gray-50/50 p-4 text-base font-medium text-gray-700 outline-none transition-all focus:border-snu-blue focus:bg-white focus:ring-1 focus:ring-snu-blue"
                   >
                     <option value="">학년을 선택해 주세요</option>
@@ -627,6 +637,12 @@ export default function RegisterPage() {
                       </>
                     )}
                   </select>
+                  {errors.grade && (
+                    <span className="mt-2 flex items-center text-sm font-bold tracking-tight text-red-500">
+                      <AlertTriangle className="mr-1.5 h-4 w-4" />
+                      학년을 선택해 주세요.
+                    </span>
+                  )}
                 </div>
               )}
 
@@ -706,9 +722,9 @@ export default function RegisterPage() {
 
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || !termsAgreed.privacy || !termsAgreed.thirdParty || !termsAgreed.sms}
             className={`min-h-[56px] w-full rounded-2xl py-5 text-lg font-bold text-white shadow-sm transition-all duration-300 sm:text-xl ${
-              submitting
+              submitting || !termsAgreed.privacy || !termsAgreed.thirdParty || !termsAgreed.sms
                 ? 'cursor-not-allowed bg-gray-300 shadow-none'
                 : 'bg-snu-blue hover:bg-snu-dark hover:shadow-md focus:ring-4 focus:ring-snu-blue/20'
             }`}
