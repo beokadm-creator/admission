@@ -4,7 +4,9 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowRight, CheckCircle2, Clock3, Ticket, Users, X } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Clock3, ShieldCheck, Ticket, Users, X } from 'lucide-react';
+import { useQueueChallenge } from '../hooks/useQueueChallenge';
+import QueueChallengeModal from './QueueChallengeModal';
 import { auth, db, functions } from '../firebase/config';
 import { useSchool } from '../contexts/SchoolContext';
 import {
@@ -425,7 +427,7 @@ export default function SmartQueueGate() {
   const completedCount = queueState.confirmedCount + queueState.waitlistedCount;
   const waitingCount = Math.max(0, queueState.lastAssignedNumber - queueState.currentNumber);
   const remainingCapacity = Math.max(0, queueState.totalCapacity - completedCount);
-  const queueJoinLimit = Math.max(1, Math.ceil(getAdmissionRoundTotal(selectedRound) * 1.5));
+  const queueJoinLimit = Math.max(1, getAdmissionRoundTotal(selectedRound));
   const closedRoundState = selectedRound?.id ? closedRounds[selectedRound.id] : undefined;
   const queueLimitReached = !myEntry && (
     Boolean(closedRoundState?.reason) ||
@@ -483,6 +485,12 @@ export default function SmartQueueGate() {
       : myEntry?.status === 'expired'
         ? `${selectedRound?.label || ''} 다시 입장하기`
         : `${selectedRound?.label || ''} 대기열 입장`;
+
+  const shouldShowChallenge =
+    schoolConfig?.queueSettings?.useEntryChallenge === true &&
+    (!myEntry || myEntry.status === 'expired');
+
+  const challenge = useQueueChallenge({ onSuccess: () => { void joinQueue(); } });
 
   useEffect(() => {
     if (!schoolId) return;
@@ -950,6 +958,23 @@ export default function SmartQueueGate() {
 
             {!myEntry || myEntry.status === 'expired' ? (
               <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                {shouldShowChallenge && (
+                  <div className="mb-4 overflow-hidden rounded-xl border border-amber-300 bg-amber-50">
+                    <div className="flex items-center gap-2 bg-amber-500 px-4 py-2.5">
+                      <ShieldCheck className="h-4 w-4 shrink-0 text-white" />
+                      <p className="text-xs font-black uppercase tracking-widest text-white">자동 매크로 방지</p>
+                    </div>
+                    <div className="px-4 py-3">
+                      <p className="text-sm font-bold text-amber-900">
+                        “대기열 입장” 버튼을 누르면 <span className="underline decoration-amber-500 decoration-2">4자리 숫자 입력 화면</span>이 나타납니다.
+                      </p>
+                      <p className="mt-1.5 text-sm leading-relaxed text-amber-800">
+                        화면에 표시된 숫자를 직접 입력한 순서대로 대기번호가 부여됩니다.
+                        당황하지 마시고 숫자를 확인 후 차분히 입력해 주세요.
+                      </p>
+                    </div>
+                  </div>
+                )}
                 <p className="text-sm font-bold text-gray-900">입장 확인 정보</p>
                 <p className="mt-2 text-sm leading-relaxed text-gray-600">
                   같은 이름과 휴대폰 번호로는 대기번호를 하나만 받을 수 있습니다.
@@ -975,7 +1000,7 @@ export default function SmartQueueGate() {
             <div className="mt-6 grid gap-3">
               {!myEntry || myEntry.status === 'expired' ? (
                 <button
-                  onClick={() => void joinQueue()}
+                  onClick={() => { if (shouldShowChallenge) { challenge.openChallenge(); } else { void joinQueue(); } }}
                   disabled={!isOpen || joining || joinCooldownActive || remainingCapacity <= 0 || queueLimitReached || !queueIdentityReady}
                   className="flex min-h-[56px] w-full items-center justify-center rounded-2xl bg-snu-blue px-5 py-4 text-base font-bold text-white transition hover:bg-snu-dark disabled:cursor-not-allowed disabled:bg-gray-300 sm:min-h-[60px]"
                 >
@@ -1025,10 +1050,9 @@ export default function SmartQueueGate() {
               <div className="mt-3 space-y-2 text-sm leading-relaxed text-gray-600">
                 <p>접수는 {openDateLabel}에 시작됩니다.</p>
                 <p>오픈 시간에 버튼을 누르면 대기열 진입을 시도합니다.</p>
-                <p>대기번호는 선착순 {queueJoinLimit.toLocaleString()}번까지 발급되며, 정원이 차면 신청이 마감됩니다.</p>
-                <p className="font-medium text-gray-700">대기번호를 받았더라도 정원이 소진되면 신청서를 작성하지 못할 수 있습니다.</p>
-                <p className="font-medium text-gray-700">신청서를 작성하더라도 번호 순서에 따라 확정 또는 예비로 결과가 나뉩니다.</p>
-                <p>1차에서 신청하지 못한 경우 2차 오픈 시각에 다시 대기열에 입장할 수 있습니다.</p>
+                <p>대기열은 정규 {regularCapacity.toLocaleString()}명 + 예비 {waitlistCapacity.toLocaleString()}명, 총 정원({queueJoinLimit.toLocaleString()}명) 기준으로만 운영됩니다.</p>
+                <p className="font-semibold text-gray-800">⚠️ 번호를 받은 후 반드시 이 화면을 유지해 주세요. 화면을 닫으면 번호가 소멸됩니다.</p>
+                <p>1차에서 접수하지 못한 경우, 이탈자 발생 시 2차 예비번호 순서로 확정될 수 있습니다.</p>
               </div>
             </div>
 
@@ -1081,14 +1105,14 @@ export default function SmartQueueGate() {
                 <FlowCard
                   tone="indigo"
                   step="1"
-                  title="대기열 진입 시도"
-                  body={`오픈 시각에 버튼을 눌러 대기열 진입을 시도합니다. 접속 폭주 시 진입이 지연될 수 있으며, 번호를 받아도 정원(${queueState.totalCapacity.toLocaleString()}명)이 소진되면 신청서를 작성하지 못할 수 있습니다.`}
+                  title="매크로 방지 확인 후 대기열 입장"
+                  body={`오픈 시각에 버튼을 누르면 4자리 숫자 입력 화면이 표시됩니다. 숫자를 입력한 순서대로 대기번호가 부여되며, 대기열은 정원(${queueState.totalCapacity.toLocaleString()}명)에 맞게만 운영됩니다.`}
                 />
                 <FlowCard
                   tone="amber"
                   step="2"
-                  title="순차 입장"
-                  body={`동시에 최대 ${maxActiveSessions}명이 작성할 수 있습니다. 자리가 생겨야 다음 순번의 입장이 열립니다.`}
+                  title="순차 입장 — 화면 유지 필수"
+                  body={`동시에 최대 ${maxActiveSessions}명이 작성할 수 있습니다. 자리가 생겨야 다음 순번의 입장이 열립니다. 번호를 받은 후 반드시 이 화면을 유지해 주세요.`}
                 />
                 <FlowCard
                   tone="emerald"
@@ -1100,7 +1124,7 @@ export default function SmartQueueGate() {
                   tone="rose"
                   step="4"
                   title="확정 / 예비 결과"
-                  body="번호 순서에 따라 확정 또는 예비로 결과가 나뉩니다. 예비 결과는 담당자가 개별 연락드립니다."
+                  body="번호 순서에 따라 확정 또는 예비로 결과가 나뉩니다. 예비 결과는 담당자가 개별 연락드리며, 1차 이탈자 발생 시 예비번호 순서로 확정될 수 있습니다."
                 />
               </div>
             </section>
@@ -1124,15 +1148,42 @@ export default function SmartQueueGate() {
           </div>
         </div>
 
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-white/95 px-4 py-3 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur sm:hidden">
-          <div className="mx-auto flex max-w-6xl gap-3">
+        {/* ───────── 모바일 하단 고정 바 ───────── */}
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-white/97 shadow-[0_-12px_30px_rgba(15,23,42,0.10)] backdrop-blur sm:hidden">
+          {/* 이름·전화번호 미입력 상태면 인라인 폼 표시 */}
+          {(!myEntry || myEntry.status === 'expired') && !queueIdentityReady && (
+            <div className="border-b border-gray-100 px-4 py-3">
+              <p className="mb-2 text-xs font-bold text-gray-500">
+                ✍️ 이름과 휴대폰 번호를 입력해야 대기열에 입장할 수 있습니다.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  value={queueIdentity.studentName}
+                  onChange={(e) => setQueueIdentity((prev) => ({ ...prev, studentName: e.target.value }))}
+                  placeholder="이름"
+                  className="min-h-[44px] flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 outline-none focus:border-snu-blue focus:ring-2 focus:ring-snu-blue/10"
+                />
+                <input
+                  value={queueIdentity.phone}
+                  onChange={(e) => setQueueIdentity((prev) => ({ ...prev, phone: normalizeQueuePhone(e.target.value) }))}
+                  inputMode="numeric"
+                  placeholder="010-0000-0000"
+                  className="min-h-[44px] flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900 outline-none focus:border-snu-blue focus:ring-2 focus:ring-snu-blue/10"
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="mx-auto flex max-w-6xl gap-3 px-4 py-3">
             {!myEntry || myEntry.status === 'expired' ? (
               <button
-                onClick={() => void joinQueue()}
+                onClick={() => { if (shouldShowChallenge) { challenge.openChallenge(); } else { void joinQueue(); } }}
                 disabled={!isOpen || joining || joinCooldownActive || remainingCapacity <= 0 || queueLimitReached || !queueIdentityReady}
-                className="flex min-h-[54px] flex-1 items-center justify-center rounded-2xl bg-snu-blue px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-gray-300"
+                className="flex min-h-[54px] flex-1 items-center justify-center rounded-2xl bg-snu-blue px-4 text-sm font-bold text-white transition active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-gray-300"
               >
-                {primaryActionLabel}
+                {!queueIdentityReady
+                  ? '이름·전화번호를 먼저 입력해 주세요'
+                  : primaryActionLabel}
               </button>
             ) : isNearTurnWaiting ? null : suppressCompletedAutoEntry ? (
               <Link
@@ -1168,6 +1219,7 @@ export default function SmartQueueGate() {
             )}
           </div>
         </div>
+
 
         {showProgramImage && schoolConfig?.programImageUrl && (
           <div className="fixed inset-0 z-[100] bg-black/90 sm:p-4" onClick={() => setShowProgramImage(false)}>
@@ -1206,6 +1258,21 @@ export default function SmartQueueGate() {
         )}
       </div>
     </div>
+
+    {challenge.isOpen && (
+      <QueueChallengeModal
+        isOpen={challenge.isOpen}
+        challengeDigits={challenge.challengeDigits}
+        userDigits={challenge.userDigits}
+        isShaking={challenge.isShaking}
+        hasError={challenge.hasError}
+        handleDigitInput={challenge.handleDigitInput}
+        handleBackspace={challenge.handleBackspace}
+        handlePaste={challenge.handlePaste}
+        submitChallenge={challenge.submitChallenge}
+        closeChallenge={challenge.closeChallenge}
+      />
+    )}
     </>
   );
 }

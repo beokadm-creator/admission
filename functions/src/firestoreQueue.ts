@@ -197,7 +197,7 @@ function getMaxActiveSessions(schoolData: admin.firestore.DocumentData) {
 
 function getQueueJoinLimit(round: AdmissionRoundConfig) {
   const { totalCapacity } = getRoundCapacity(round);
-  return Math.max(1, Math.ceil(totalCapacity * 1.5));
+  return Math.max(1, Math.ceil(totalCapacity * 1.0));
 }
 
 function isQueueEnabled(schoolData: admin.firestore.DocumentData) {

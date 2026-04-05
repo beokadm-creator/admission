@@ -412,6 +412,7 @@ export default function SchoolSettings() {
         setValue('popupContent', data.popupContent || '');
         setValue('queueSettings.enabled', data.queueSettings?.enabled !== false);
         setValue('queueSettings.maxActiveSessions', data.queueSettings?.maxActiveSessions || 60);
+        setValue('queueSettings.useEntryChallenge', !!data.queueSettings?.useEntryChallenge);
         setValue('formFields.collectEmail', !!data.formFields?.collectEmail);
         setValue('formFields.collectAddress', !!data.formFields?.collectAddress);
         setValue('formFields.collectSchoolName', !!data.formFields?.collectSchoolName);
@@ -642,7 +643,8 @@ export default function SchoolSettings() {
         },
         queueSettings: {
           enabled: data.queueSettings?.enabled !== false,
-          maxActiveSessions
+          maxActiveSessions,
+          useEntryChallenge: !!data.queueSettings?.useEntryChallenge
         },
         formFields: {
           collectEmail: !!data.formFields?.collectEmail,
@@ -1120,6 +1122,17 @@ export default function SchoolSettings() {
                       className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
                     <span className="text-sm font-medium text-gray-700">대기열 기능 사용</span>
+                  </label>
+                  <label className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                    <input
+                      {...register('queueSettings.useEntryChallenge')}
+                      type="checkbox"
+                      className="h-5 w-5 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                    />
+                    <div>
+                      <span className="text-sm font-medium text-gray-700">입장 챌린지 (매크로 방지)</span>
+                      <p className="mt-0.5 text-xs text-amber-700">활성화 시 입장 전 4자리 숫자 입력 화면이 표시됩니다.</p>
+                    </div>
                   </label>
                   <label className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
                     <input

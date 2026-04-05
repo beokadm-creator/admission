@@ -37,6 +37,7 @@ export interface SchoolConfig {
   queueSettings?: {
     maxActiveSessions: number;
     enabled: boolean;
+    useEntryChallenge?: boolean;
   };
   sessionTimeoutSettings?: {
     activeSessionTimeoutMs?: number;
