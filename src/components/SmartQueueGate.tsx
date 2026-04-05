@@ -459,12 +459,12 @@ export default function SmartQueueGate() {
       : null;
   const buttonStatusMessage = canEnter
     ? '지금 바로 신청서를 작성할 수 있습니다. 3분 안에 작성과 제출을 완료해 주세요.'
-    : isNearTurnWaiting
-      ? '곧 신청서로 이동됩니다. 이 화면을 유지해 주세요.'
     : suppressCompletedAutoEntry
       ? recentCompletion?.status === 'waitlisted'
         ? '이전 차수에서 이미 예비 접수가 완료되어 다른 차수에 지원할 수 없습니다. 상단의 조회 메뉴에서 결과를 확인해 주세요.'
         : '이전 차수에서 이미 신청이 완료되어 다른 차수에 지원할 수 없습니다. 상단의 조회 메뉴에서 결과를 확인해 주세요.'
+    : isNearTurnWaiting
+      ? '곧 신청서로 이동됩니다. 이 화면을 유지해 주세요.'
     : myEntry?.status === 'expired'
       ? '작성 가능 시간이 만료되었습니다. 다시 신청하려면 대기열에 다시 입장해 번호를 받아야 합니다.'
       : joinCooldownActive
@@ -582,12 +582,18 @@ export default function SmartQueueGate() {
       return '신청서 작성 인원이 가득 찼습니다. 자리가 생기면 자동으로 입장됩니다.';
     }
 
+    if (suppressCompletedAutoEntry) {
+      return recentCompletion?.status === 'waitlisted'
+        ? '이전 차수에서 이미 예비 접수가 완료되어 다른 차수에 지원할 수 없습니다. 상단의 조회 메뉴에서 결과를 확인해 주세요.'
+        : '이전 차수에서 이미 신청이 완료되어 다른 차수에 지원할 수 없습니다. 상단의 조회 메뉴에서 결과를 확인해 주세요.';
+    }
+
     if (waitingAhead === 0) {
       return '곧 입장 순서가 됩니다. 현재 화면을 유지해 주세요.';
     }
 
     return `내 앞에 ${waitingAhead}명이 대기 중이며, 예상 대기 시간은 약 ${estimatedWaitMinutes}분입니다.`;
-  }, [canEnter, estimatedWaitMinutes, isOpen, myEntry?.status, myNumber, queueLimitReached, queueState.availableCapacity, remainingCapacity, selectedRound?.label, waitingAhead]);
+  }, [canEnter, estimatedWaitMinutes, isOpen, myEntry?.status, myNumber, queueLimitReached, queueState.availableCapacity, recentCompletion?.status, remainingCapacity, selectedRound?.label, suppressCompletedAutoEntry, waitingAhead]);
 
   const ensureQueueUserId = useCallback(async () => {
     if (auth.currentUser?.uid) {
