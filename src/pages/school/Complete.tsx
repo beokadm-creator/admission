@@ -7,7 +7,7 @@ export default function CompletePage() {
   const { schoolId } = useParams();
   const { schoolConfig } = useSchool();
   const location = useLocation();
-  const { status, rank } = location.state || {};
+  const { status, rank, submittedAt } = location.state || {};
 
   if (!status) {
     return <Navigate to={`/${schoolId}`} replace />;
@@ -16,7 +16,7 @@ export default function CompletePage() {
   const isConfirmed = status === 'confirmed';
   const schoolName = schoolConfig?.name || '행사';
   const schoolBrand = schoolConfig?.name || 'Admission';
-  const submittedAt = new Date().toLocaleString('ko-KR');
+  const submittedAtDisplay = submittedAt ? new Date(submittedAt).toLocaleString('ko-KR') : new Date().toLocaleString('ko-KR');
 
   return (
     <div className="min-h-screen bg-[#E8E9EA] flex flex-col items-center justify-center p-4 sm:p-6 font-sans tracking-tight">
@@ -116,7 +116,7 @@ export default function CompletePage() {
             <div className="rounded-2xl border border-dashed border-gray-200 bg-white/70 px-5 py-4 mb-8 text-left">
               <p className="text-xs font-bold uppercase tracking-[0.24em] text-gray-400">Submission</p>
               <p className="mt-2 text-sm font-semibold text-gray-900">{schoolName}</p>
-              <p className="mt-1 text-sm text-gray-500">접수 완료 시각: {submittedAt}</p>
+              <p className="mt-1 text-sm text-gray-500">접수 완료 시각: {submittedAtDisplay}</p>
             </div>
 
             <div className="grid gap-4">

@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { db } from '../../firebase/config';
 import { useAuth } from '../../contexts/AuthContext';
 import { SchoolConfig } from '../../types/models';
+import { getCurrentAdmissionRound } from '../../lib/admissionRounds';
 import { Plus, Settings, Trash2, Activity, Users, Clock } from 'lucide-react';
 
 interface SchoolWithStats extends SchoolConfig {
@@ -36,16 +37,16 @@ export default function SchoolList() {
 
     const fetchSchools = async () => {
       try {
-        console.log('Fetching schools...');
         const querySnapshot = await getDocs(collection(db, 'schools'));
         const schoolList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SchoolWithStats));
-        console.log('Found schools:', schoolList.length);
 
         // Fetch slot stats from Firestore for each school
         const schoolsWithStats = await Promise.all(
           schoolList.map(async (school) => {
             try {
-              const slotDocRef = doc(db, 'schools', school.id, 'queueState', 'current');
+              const currentRound = getCurrentAdmissionRound(school);
+              const roundId = currentRound?.id || 'round1';
+              const slotDocRef = doc(db, 'schools', school.id, 'queueState', roundId);
               const slotDocSnap = await getDoc(slotDocRef);
               const slotData = slotDocSnap.exists() ? slotDocSnap.data() : null;
               const slotStats = slotData
@@ -56,7 +57,6 @@ export default function SchoolList() {
                     available: slotData.availableCapacity ?? 0
                   }
                 : null;
-              console.log('School stats:', school.id, slotStats);
               return { ...school, slotStats };
             } catch (error) {
               console.warn('Error fetching stats for school:', school.id, error);

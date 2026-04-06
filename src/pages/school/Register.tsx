@@ -337,7 +337,7 @@ export default function RegisterPage() {
         status: result.data.status || 'confirmed',
         completedAt: Date.now()
       });
-      navigate(`/${schoolId}/complete`, { state: { status: result.data.status === 'waitlisted' ? 'waitlisted' : 'confirmed', rank: result.data.rank ?? null } });
+      navigate(`/${schoolId}/complete`, { state: { status: result.data.status === 'waitlisted' ? 'waitlisted' : 'confirmed', rank: result.data.rank ?? null, submittedAt: Date.now() } });
     } catch (error: unknown) {
       confirmRequestIdRef.current = null;
       console.error('[Registration] Error:', error);
