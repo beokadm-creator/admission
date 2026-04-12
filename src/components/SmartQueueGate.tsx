@@ -16,7 +16,7 @@ import {
   getQueueUserId,
   isSameQueueIdentity,
   loadStoredQueueIdentity,
-  markRecentQueueExpiry,
+  
   normalizeQueuePhone,
   QueueIdentityInput,
   saveStoredQueueIdentity
@@ -520,6 +520,14 @@ export default function SmartQueueGate() {
       return;
     }
 
+    // 대기열이 활성화된 날에만 heartbeat 작동 (설정 기반 안전장치)
+    // 안전장치: 이미 대기열에 있는 사용자는 heartbeat 계속 유지
+    const hasActiveQueueEntry = myEntry.status === 'waiting' || myEntry.status === 'eligible';
+
+    if (!isOpen && !hasActiveQueueEntry) {
+      return; // 접수 시작 전 + 입장하지 않은 사용자만 heartbeat 작동 안 함
+    }
+
     const heartbeatFn = httpsCallable(functions, 'heartbeatQueuePresence');
     let disposed = false;
 
@@ -538,7 +546,7 @@ export default function SmartQueueGate() {
     void sendHeartbeat();
     const intervalId = window.setInterval(() => {
       void sendHeartbeat();
-    }, 10000);
+    }, 30000); // 10초 → 30초 (3배 비용 절감)
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
@@ -553,7 +561,7 @@ export default function SmartQueueGate() {
       window.clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [myEntry, schoolId]);
+  }, [myEntry, schoolId, isOpen]);
 
   const myStatusMessage = useMemo(() => {
     if (!isOpen) {

@@ -1097,12 +1097,11 @@ export const joinQueue = hotPathRuntime.https.onCall(async (request: any, legacy
   const schoolRef = db.doc(`schools/${schoolId}`);
   const entryRef = queueEntriesRef(db, schoolId).doc(auth.uid);
 
-  const [existingResult, userRateLimit, ipRateLimit, schoolSnapshot, entrySnapshot] = await Promise.all([
+  const [existingResult, userRateLimit, ipRateLimit, schoolSnapshot] = await Promise.all([
     getExistingRequestResult(db, schoolId, requestId),
     checkRateLimit(db, `joinQueue_${auth.uid}`, 5, 60000),
     checkRateLimit(db, `joinQueue_${schoolId}_${ipIdentifier}`, 120, 60000),
-    schoolRef.get(),
-    entryRef.get()
+    schoolRef.get()
   ]);
 
   if (existingResult) {
@@ -1139,52 +1138,8 @@ export const joinQueue = hotPathRuntime.https.onCall(async (request: any, legacy
 
   const now = Date.now();
   const queueState = buildQueueStateDoc(schoolData, round, stateSnapshot.exists ? (stateSnapshot.data() as QueueStateDoc) : null);
-  const existingEntry = entrySnapshot.exists ? (entrySnapshot.data() as QueueEntryDoc) : null;
   const queueJoinLimit = getQueueJoinLimit(round);
   const totalCapacity = Number(queueState.totalCapacity || 0);
-
-  if (existingEntry && existingEntry.roundId === round.id && existingEntry.status !== 'expired') {
-    const existingJoinResult = {
-      success: true,
-      accepted: true,
-      number: existingEntry.number,
-      currentNumber: queueState.currentNumber,
-      lastAssignedNumber: Math.max(queueState.lastAssignedNumber, Number(existingEntry.number || 0)),
-      status: existingEntry.status
-    };
-
-    await Promise.all([
-      entryRef.set(
-        {
-          lastSeenAt: now,
-          updatedAt: now
-        },
-        { merge: true }
-      ),
-      identityLockRef.set({
-        roundId: round.id,
-        userId: auth.uid,
-        studentName: existingEntry.applicantName || sanitizedIdentity.studentName,
-        phoneLast4: existingEntry.applicantPhoneLast4 || sanitizedIdentity.phoneLast4,
-        status: existingEntry.status === 'eligible' ? 'eligible' : 'waiting',
-        queueNumber: existingEntry.number,
-        sessionId: null,
-        registrationId: null,
-        updatedAt: now
-      } as QueueIdentityLockDoc, { merge: true }),
-      lockRef.set(makeRequestLock('joinQueue', auth.uid, existingJoinResult))
-    ]);
-
-    return existingJoinResult;
-  }
-
-  if (existingEntry?.status === 'expired' && existingEntry.roundId === round.id) {
-    await clearQueueNumber(schoolId, round.id, auth.uid);
-  }
-
-  if (existingEntry && existingEntry.roundId && existingEntry.roundId !== round.id) {
-    await clearQueueNumber(schoolId, existingEntry.roundId, auth.uid).catch(() => undefined);
-  }
 
   if (totalCapacity <= 0 || queueState.availableCapacity <= 0) {
     throw makeJoinQueueError(
