@@ -414,6 +414,9 @@ export const onRegistrationCreateQueued = firestoreTriggers
 export const onRegistrationUpdateQueued = firestoreTriggers
   .document('schools/{schoolId}/registrations/{registrationId}')
   .onUpdate(async (change, context) => {
+    // 자동 승급 알림톡 발송 기능 비활성화
+    return;
+    /*
     const newData = change.after.data();
     const oldData = change.before.data();
     const schoolId = context.params.schoolId;
@@ -434,4 +437,5 @@ export const onRegistrationUpdateQueued = firestoreTriggers
         }, credentials);
       }
     }
+    */
   });
