@@ -65,3 +65,8 @@ _현재 별도로 추적할 임시 상태 없음._
 - 2026-04-04: Design Context 추가 (사용자: 학부모+학생, 레퍼런스: Apple/Linear, 폰트: Pretendard).
 - 2026-04-03: 9원칙 기준으로 재작성. 불필요한 마크다운 제거, token-estimate 축소.
 - 2026-04-02: 중복 아키텍처 설명 제거, AGENTS.md 참조 adapter 문서로 축약.
+## Git Workflow
+- 새 작업 시작: main에서 branch 분기
+- 작업 완료: main에 merge
+- 배포: main에서만
+- 다른 PC에서 작업 시: branch 작업 + push, 스테이징/머지/배포는 메인 PC에서
