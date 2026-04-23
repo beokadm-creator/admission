@@ -2,6 +2,7 @@ import React from 'react';
 import { useParams, Link, useLocation, Navigate } from 'react-router-dom';
 import { CheckCircle, Clock, ChevronRight, Home, ClipboardList, BellRing } from 'lucide-react';
 import { useSchool } from '../../contexts/SchoolContext';
+import ZoomTroubleshooting from '../../components/ZoomTroubleshooting';
 
 export default function CompletePage() {
   const { schoolId } = useParams();
@@ -139,6 +140,12 @@ export default function CompletePage() {
                 메인 게이트로 이동
               </Link>
             </div>
+            
+            {isConfirmed && schoolConfig?.serviceAccess?.enabled === true && (
+              <div className="mt-8 text-left">
+                <ZoomTroubleshooting />
+              </div>
+            )}
           </div>
         </div>
 

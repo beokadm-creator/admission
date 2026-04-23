@@ -6,6 +6,7 @@ import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import { functions } from '../../firebase/config';
 import { useSchool } from '../../contexts/SchoolContext';
+import ZoomTroubleshooting from '../../components/ZoomTroubleshooting';
 
 interface RegistrationResult {
   id: string;
@@ -259,23 +260,29 @@ export default function LookupPage() {
             </dl>
 
             {result.status === 'confirmed' && schoolConfig.serviceAccess?.enabled === true && (
-              <div className="mt-4 rounded-lg border border-snu-blue/10 bg-snu-blue/5 p-5">
-                <p className="text-xs font-bold text-snu-blue uppercase tracking-widest">
-                  {schoolConfig.serviceAccess.buttonLabel || 'SERVICE ACCESS'}
-                </p>
-                {schoolConfig.serviceAccess.description && (
-                  <p className="mt-2 text-sm leading-relaxed text-gray-600 font-medium">{schoolConfig.serviceAccess.description}</p>
-                )}
-                <button
-                  onClick={handleServiceAccess}
-                  disabled={serviceLoading}
-                  className="mt-4 w-full min-h-[56px] rounded-md bg-snu-blue py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-snu-dark disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {serviceLoading
-                    ? '이동 중입니다...'
-                    : schoolConfig.serviceAccess.buttonLabel || '서비스 시작하기'}
-                </button>
-              </div>
+              <>
+                <div className="mt-4 rounded-lg border border-snu-blue/10 bg-snu-blue/5 p-5">
+                  <p className="text-xs font-bold text-snu-blue uppercase tracking-widest">
+                    {schoolConfig.serviceAccess.buttonLabel || 'SERVICE ACCESS'}
+                  </p>
+                  {schoolConfig.serviceAccess.description && (
+                    <p className="mt-2 text-sm leading-relaxed text-gray-600 font-medium">{schoolConfig.serviceAccess.description}</p>
+                  )}
+                  <button
+                    onClick={handleServiceAccess}
+                    disabled={serviceLoading}
+                    className="mt-4 w-full min-h-[56px] rounded-md bg-snu-blue py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-snu-dark disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {serviceLoading
+                      ? '이동 중입니다...'
+                      : schoolConfig.serviceAccess.buttonLabel || '서비스 시작하기'}
+                  </button>
+                </div>
+                
+                <div className="mt-6">
+                  <ZoomTroubleshooting />
+                </div>
+              </>
             )}
           </div>
         )}

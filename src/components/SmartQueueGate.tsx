@@ -7,6 +7,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowRight, CheckCircle2, Clock3, ExternalLink, Phone, ShieldCheck, Ticket, Users, X } from 'lucide-react';
 import { useQueueChallenge } from '../hooks/useQueueChallenge';
 import QueueChallengeModal from './QueueChallengeModal';
+import ZoomTroubleshooting from './ZoomTroubleshooting';
 import { auth, db, functions } from '../firebase/config';
 import { useSchool } from '../contexts/SchoolContext';
 import {
@@ -1354,23 +1355,25 @@ export default function SmartQueueGate() {
             </section>
 
             <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-bold text-gray-900">문의 안내</h2>
-              <p className="mt-4 whitespace-pre-line text-sm leading-relaxed text-gray-600">
-                문의처 02-6959-3871~3{'\n'}
-                카카오톡 문의를 권장합니다.{'\n'}
-                교육 프로그램 및 홈페이지 기능 관련 문의
-              </p>
-              <a
-                href="https://pf.kakao.com/_wxexmxgn/chat"
-                target="_blank"
-                rel="noreferrer"
-                className="mt-4 flex w-full items-center justify-center rounded-2xl bg-[#FEE500] px-5 py-3 text-sm font-bold text-[#191919] transition hover:brightness-95"
-              >
-                카카오톡 문의
-              </a>
-            </section>
+                <h2 className="text-lg font-bold text-gray-900">문의 안내</h2>
+                <p className="mt-4 whitespace-pre-line text-sm leading-relaxed text-gray-600">
+                  문의처 02-6959-3871~3{'\n'}
+                  카카오톡 문의를 권장합니다.{'\n'}
+                  교육 프로그램 및 홈페이지 기능 관련 문의
+                </p>
+                <a
+                  href="https://pf.kakao.com/_wxexmxgn/chat"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-4 flex w-full items-center justify-center rounded-2xl bg-[#FEE500] px-5 py-3 text-sm font-bold text-[#191919] transition hover:brightness-95"
+                >
+                  카카오톡 문의
+                </a>
+              </section>
+
+              <ZoomTroubleshooting />
+            </div>
           </div>
-        </div>
 
         {/* ───────── 모바일 하단 고정 바 ───────── */}
         <div
