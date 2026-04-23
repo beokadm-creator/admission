@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { collection, onSnapshot, orderBy, query, doc, writeBatch } from 'firebase/firestore';
-import { Users, Trash2, CheckSquare, Square } from 'lucide-react';
+import { collection, onSnapshot, orderBy, query, doc, writeBatch, updateDoc } from 'firebase/firestore';
+import { Users, Trash2, CheckSquare, Square, CheckCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { db } from '../firebase/config';
 import { Registration } from '../types/models';
@@ -53,6 +53,38 @@ export default function RegistrationList({ schoolId }: { schoolId: string }) {
       newSelected.add(id);
     }
     setSelectedIds(newSelected);
+  };
+
+  const handleConfirmSelected = async () => {
+    if (selectedIds.size === 0) return;
+    
+    // Only process waitlisted registrations
+    const selectedRegistrations = registrations.filter(
+      r => selectedIds.has(r.id) && r.status === 'waitlisted'
+    );
+    
+    if (selectedRegistrations.length === 0) {
+      alert('선택된 항목 중 대기(waitlisted) 상태인 신청자가 없습니다.');
+      return;
+    }
+
+    if (!window.confirm(`선택한 ${selectedRegistrations.length}명의 대기자를 확정(confirmed) 상태로 변경하시겠습니까?`)) return;
+
+    try {
+      const batch = writeBatch(db);
+      selectedRegistrations.forEach((registration) => {
+        batch.update(doc(db, `schools/${schoolId}/registrations`, registration.id), {
+          status: 'confirmed',
+          updatedAt: Date.now()
+        });
+      });
+      await batch.commit();
+      setSelectedIds(new Set());
+      alert(`${selectedRegistrations.length}명의 상태가 확정으로 변경되었습니다.`);
+    } catch (error) {
+      console.error('Update status error:', error);
+      alert('상태 변경 중 오류가 발생했습니다.');
+    }
   };
 
   const handleDeleteSelected = async () => {
@@ -155,6 +187,14 @@ export default function RegistrationList({ schoolId }: { schoolId: string }) {
             신청자 관리
           </h3>
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleConfirmSelected}
+              disabled={selectedIds.size === 0}
+              className="flex items-center gap-1 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-600 disabled:opacity-50"
+            >
+              <CheckCircle className="h-4 w-4" />
+              선택 확정 변경
+            </button>
             <button
               onClick={handleDeleteAll}
               disabled={deleting || registrations.length === 0}
