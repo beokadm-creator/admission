@@ -66,8 +66,8 @@ service cloud.firestore {
       }
 
       match /registrations/{regId} {
-        allow read, delete: if isAdminOfSchool(schoolId);
-        allow create, update: if false;
+        allow read, update, delete: if isAdminOfSchool(schoolId);
+        allow create: if false;
       }
 
       match /queueState/{docId} {
